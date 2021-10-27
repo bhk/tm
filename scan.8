@@ -1,0 +1,52 @@
+;
+;  scan.8  :  Read keys from the BIOS get-character function and
+;		display the scan codes received.  Extended codes
+;		are displayed as a negative number. (0,x --> -x)
+;
+
+
+main:	call getkey
+	test al
+	jnz >l1
+	mov dl,'-'
+	call dispchar
+	mov al,ah
+l1:	call showdec
+	mov dl,' '
+	call dispchar
+	cmp al,27
+	jnz main
+	ret
+
+getkey:	mov ah,1
+	int 016h
+	jz getkey		; loop until key is hit
+	mov ah,0
+	int 016h		; get what key was hit in AX
+	ret
+
+
+; showdec : Display decimal representation of number.
+;   On entry: AL = n (number to display)
+;   Preserves all registers except DL.
+showdec:
+	push ax
+	aam			; AH = AL/10 ; AL = AH % 10
+	xchg ah,al
+	test al			; AL = remainder
+	if nz call showdec
+	mov dl,'0'
+	add dl,ah
+	pop ax
+	;jmp dispchar
+	
+
+
+; dispchar  :  	Output character in DL to the screen
+;	Preserves all registers.
+dispchar:
+	push ax
+	mov ah,2			; func. 2 = char output
+	int 021h
+	pop ax
+	ret

@@ -1,0 +1,439 @@
+TM, version 1.3
+
+Special features:
+
+  1. Small & efficient.
+  2. Configurable.  From the command line, the following can be specified:
+	- line separator (UNIX vs. DOS vs. arbitrary character)
+	- window size & position
+	- use of BIOS vs. direct access to any area of memory
+	- tab-stop separation
+	- color scheme
+  3. Powerful features:
+	- easily-definable macros
+	- incremental search & replace
+	- "unlimited" undo
+	- selectable display modes for control & graphics characters
+  4. Long lines are displayed wrapped.
+  5. Support for many Emacs key bindings.
+
+
+
+Usage:
+
+   "TM [switches] file"
+
+   Valid switches:
+	-x# : leftmost column on screen to use (0 by default)
+	-y# : topmost line on screen to use (0 by default)
+	-l# : number of lines to use (defaults to maximum)
+	-w# : number of columns to use (defaults to maximum)
+	-L# : how many lines fit on the screen (default = 25)
+		A BIOS call reveals how many columns there are, but
+		there is no such call to inquire about lines, so for
+		special displays this argument is necessary.
+
+	-c# : specify regular color
+	-i# : specify inverse color
+	-h# : specify highlight color
+
+	-n# : Specify character to use as newline.  (See "Newline
+		Characters", below.)
+	-t# : specify tab-stop spacing (default = 8)
+
+	-b  : force TM to use BIOS to access screen.  (Normally, TM
+		writes directly to the screen buffer if it recognizes
+		the display type that BIOS reports.)
+	-b# : force TM to skip BIOS, writing directly to the screen buffer
+		at segment page `#'.  For example, "-b0b8" refers to segment
+		B800h, the location of the CGA screen buffer.  IMPROPERLY
+		USED, "-b#" COULD CAUSE THE COMPUTER TO CRASH -- OR WORSE.
+
+
+  `#' represents a number.  Numbers beginning with '0' are interpreted as
+hexadecimal numbers.
+
+
+
+Basic Functionality, and Command Keys:
+
+   Characters are inserted into the text as they are typed.  A "ì"
+character is displayed to indicate the end of the file.  The following
+keys have special functions:   (^... means Control-...)
+
+   Arrow keys	: Move the cursor in the corresponding direction.
+   ^left/^right	: Move left/right by one word.
+   PgUp/PgDn	: Page up/down through the text.
+   ^PgUp/^PgDn	: Move to top/bottom of text.
+   Del		: Delete the character at the cursor.
+   BackSpace	: Delete the character before the cursor.
+   End		: Move to the end of the line.
+   Home		: Move to the beginning of the line.
+
+   ^_		: "Undo" last modification to the test buffer.
+
+   ^O		: Insert line after point
+   ^T		: Swap the characters before and after the cursor.
+   ^L		: Centers point on screen.
+   ^End		: Delete to end-of-line.
+   ^Z / Alt-Z	: Scroll text down/up one line on scren.
+   ^Q		: "Quotes" the next character typed.  (Even if it is
+		  a control character, it will be inserted into the text,
+		  not interpreted as a command.)
+
+   ^S		: Start incremental search for a string, forward through text.
+   ^R		: Start reverse incremental search.
+
+   ^Y		: Yank (undelete) deleted text.  (See "Undelete", below.)
+   Alt-A	: Set "append-to-cut-buffer" flag.  (See "Undelete", below.)
+   ^@		: Set mark to current point in text.
+   ^W		: "Wipe." Deletes text from current point to mark.
+   Alt-Fx	: Start/finish recording macro for F1 .. F10.
+   Fx		: "play back" macro defined for F1 .. F10.
+   Alt-G	: Toggle mode for displaying graphics characters.
+		  (See "Graphics Characters", below.)
+   Alt-M	: Convert newlines.  Remove all ^M characters from a file.
+		  (See "Newline Characters", below)
+   
+   Escape, ^X	: Bring up special functions menu ("Save", "Quit", etc.)
+
+
+Menus:
+
+    When a menu is displayed, use the arrow keys to highlight the desired
+option and press ENTER to select the highlighted option.  Alternatively,
+you can just type the capitalized letter in an option to select it.
+    To exit a menu and return to editing, press Escape.
+
+
+Other notes:
+
+    When a line in the text exceeds the physical screen width, the
+remaining characters continue on the next screen line.  Whereever
+the text wraps to the next line, TM displays the character in the
+last column in inverse video.
+    When moving up and down through the text, motion is by physical
+lines (which end at newline characters or where text wraps around the
+edge of the screen).  The actions bound to ctrl-E, ctrl-A, or ctrl-K,
+however, refer to logical lines (which are defined by placement of
+newline characters in the text).
+
+Limitations:
+
+   The maximum file size is about 60K (or less if there is a lack of
+available memory).
+
+
+Graphics Characters:
+
+   Normally, all characters in the file are displayed as the IBM PC
+graphics characters they represent, except for the newline and tab
+characters, which are interpreted as formatting functions (advance
+to next line ot next tab stop, respectively).
+   Alternate display modes display control characters (ASCII 0 to 31)
+as "^@", "^A", etc., and display 8-bit characters (128 through 255)
+as hexadecimal numbers of the form "\XX".  There are four modes, providing
+for each possibile combination of control & eight-bit character displays.
+Typing Alt-G allows you to step through the possible modes, one at a time.
+
+	Mode	Control chars		Eight-bit characters
+	----	-------------		--------------------
+(default) 0	, , , 		É, Í, Ñ, Î
+
+	  1	^B, ^C, ^D, ^E		É, Í, Ñ, Î
+
+	  2	, , , 		\C9, \CD, \D1, \CE
+
+	  3	^B, ^C, ^D, ^E		\C9, \CD, \D1, \CE
+
+
+
+Undelete:
+
+   Deletion functions (Del, Ctrl-End, etc.) store the text they
+deleted in a buffer called the "cut buffer".  When you type several
+deletion functions consecutively, they each APPEND the text they
+delete to the buffer.  When you type some other type of key (like an
+arrow key), the next deletion function will REPLACE the cut buffer,
+instead of appending to it.
+
+   Ctrl-Y "undeletes", by inserting the contents of the cut buffer
+at the current cursor position, so the regular deletion commands
+can be used in conjunction with Ctrl-Y in order to copy and move
+sections of text.
+
+   A typical way of using the cut buffer is:
+	1. Move to the start of the text you want to move.
+	2. Type Ctrl-End or Del until it is all gone.
+	3. Move to where you want to place the deleted text.
+	4. Type Ctrl-Y.
+
+   To copy text, do "delete-undelete-move-undelete" instead of just
+the "delete-move-undelete" sequence.
+
+   Typing "Alt-A" modifies this behavior by causing the following
+typed command key to behave as if it immediately followed a delete function
+(and thereby makes delete functions add to the cut buffer, instead of
+replacing it).
+
+
+Undo:
+
+   Every time a modification is made to the text buffer it is logged
+in the "undo buffer", so that it may be undone.  This is true for
+any deleting (^D or backspace), typing, automated replace . . .
+ANYTHING except Convert Newlines (Alt-M).
+   Typing ^_ the first time causes "undoes" the most recent modification.
+Typing ^_ again causes the previous modification then to be undone, and
+so on, with each successive ^_ stepping farther back into the history
+of the buffer.
+   Of course, each of these undo operations are modifications, and are
+themselves recorded in the undo buffer as you type them.  So, if you
+undo too far, you can change something, and then resume typing ^_ until
+you reach the point where you wanted to be.
+   A fixed-size buffer holds undo information.  When the buffer
+fills up, the oldest undo records are discarded to make room for the
+most recent undo information.
+   How far can you continue to undo?  Each modification you perform
+takes up 5 bytes of the undo buffer, and deletions require an
+additional byte for each byte deleted.  The undo buffer is 64K in size,
+or large enough for about 10,000 single-byte modifications.  Remember
+that each undo operation also adds an undo record to the buffer, so
+after about 5000 single-byte undos you would run out of undo information.
+In practice, however, block deletes would be more common candidates for
+undo.  Estimating an average block size of 300 bytes, we would calculate
+that about 400 operations would fit in the buffer, and so 200 block
+operation undos would exhaust the undo buffer.  Unless you are moving
+very large blocks of text, you are probably more likely to encounter
+the "No more undo!" message by simply undoing all the modifications that
+were done since the file was loaded.
+
+
+Incremental search:
+
+   Typing Ctrl-S causes the editor to enter search mode.  On the status line
+is displayed the current search string (initially empty) with a special
+cursor.  As you type characters, they are added to the search string,
+and as each character is added, the next matching position in the text is
+located and the text cursor is moved to that location.  If no match is found,
+the cursor is not move and an error is reported.
+   Searches are normally case-insensitive (characters typed match both upper-
+and lower-case equivalents in the text).  To make the search case-sensitive,
+ype an upper-case letter.  Even if you later backspace over it, search mode
+remains case-sensisitve until it is exited.
+
+   Special keys in search mode:
+
+   Backspace removes charcters from the end of the search string,
+and returns the text cursor to the position in the text previously
+matched by that shorter search string.
+
+   Escape exits search mode, leaving the cursor at the current position.
+
+   Ctrl-G exits search mode, returning the text cursor to the
+position it was at before search mode was started.
+
+   To find the next occurrence of the string, type ctrl-S.  After
+encountering the end of the file, TM will continue the search at
+the beginning of the file. Typing ctrl-S again will locate following
+occurrences of the search string. When there are no more occurrences
+of the string, TM will report "not found".
+
+   While in reverse search, type ctrl-R to find the previous
+occurrence of the search string.  You can type ctrl-R or ctrl-S
+when in forward or reverse search mode to set the direction of
+the search.
+
+   Ctrl-Backspace enters Replace Mode (see "Search and Replace" below).
+
+   All other "action" keys are executed normally, but after search
+mode is exited with the point left where it is in the text.
+
+
+Search and Replace:
+
+   To replace occurrences of one string with another, search for
+the first string and then, while still in search mode, press
+Ctrl-Backspace.  You then can edit the text as you normally would
+to replace the string.  Actually you can do anything you want . . .
+it is just recording your keystrokes.  After modifying the text,
+press Ctrl-S.  This returns you to the search function, only
+now it is in Replace Mode.  It will find successive occurrences of
+the string, and then ask: "Replace? (Y,N,A,Q) : "
+
+   "Y" means "yes, replace this occurrence."
+   "N" means, "no, skip this occurrence."
+   "A" means, "yes, and replace all following occurrences without
+asking again."
+   "Q" exits replace mode immediately.
+
+   When you press "Y", it will play back the keystrokes it recorded
+as you replaced the first occurrence.  "A" is like pressing "Y" for
+all remaining occurreces.  If "A" looks like it is going to take
+a long time (or maybe never end), press Ctrl-G to interrupt it.
+
+
+Finer Points of Search/Replace:
+
+   If you type a "replace operation" which is more complicated
+than simply typing a new word, it may not be obvious where the
+search for the next occurrence starts (exactly).  Here is what
+TM does, if you are interested:
+
+   After performing the Replace operation, TM returns to the
+position in the file where the end of the replaced string was
+(that is, the same number of characters from the start of the
+file). Then it moves to the right by the number of characters
+inserted, or left by the number of characters deleted, but it
+never moves left past the start of the old string.  From this
+point it begins its search for the next occurrence.
+
+
+Macros:
+
+   A macro is a sequence of recorded keystrokes which can
+be performed again.  TM users can easily define and play
+back their own macros.  Here's how:
+
+	1. Type Alt-F<x> to begin recording.
+	2. Type anything (letters, control keys, whatever).
+	   (What you type now is called the "macro sequence".)
+	3. Type Alt-F<x> again, to stop recording.
+
+   Now, whenever you type F<x>, the keys you typed in step 2
+will be re-typed for you.  Macros can be useful for many
+repetetive tasks, such as commenting out lines.  Here are
+a few finer points:
+
+  1. If, when recording a macro, an error occurs ("buffer full",
+etc.), then the macro recording is cancelled automatically.
+
+  2. An error that occurs during playback will cancel the playback.
+
+  3. The Alt-F<x> key you type to begin recording is the one
+which names the macro.  The Alt-F<x> key you type to end
+recording doesn't matter.
+
+  4. Macro sequences can include macro keys.  Just be aware that
+if you type a function key and it doesn't exit on its own, you can
+type Ctrl-G or ESC to interrupt it.  See "Nested Macros", below,
+for a more technical description of how these macros behave.
+
+  5. Macros cannot include replace operations, because search/replace
+uses a macro to record the replace operation.  Searches can be
+recorded as part of macros, but initiating a replace causes
+the macro you were recording to be forgotten.
+
+
+Nested Macros:
+
+   When a macro sequence includes a macro key, it is called a
+"nested" macro.  Nesting is allowed up to five levels deep.
+
+   When a macro sequence includes itself, or includes some other
+macro which includes itself, then it is a "recursive" macro
+definition.  If a macro sequence references another macro ONLY as
+the last key in the sequence, then it is a "tail-recursive" macro.
+
+    Tail-recursive macros can be thought of as self-repeating,
+instead of nesting at deeper and deeper levels, and these are allowed
+to repeat ad-infinitum (until the user interrupts them).  One thing
+to note is that while you are recording a macro, it is undefined,
+and undefined function keys have no effect when typed.  Only when
+you play it back will the recursive nature be apparent.
+
+    Execution of other recursive (non-tail-recursive) macros will
+be terminated after the maximum nesting level is reached.
+
+
+Newline Characters:
+
+    DOS files typically represent the end of a line of text by the
+occurrence of a two-character sequence: CR/LF (ASCII 13 & 10).
+UNIX files use only LF to represent the end of a line.  Internally,
+TM uses a single LF character to represent the end of a line.  In
+order to deal with DOS files nicely, TM normally strips all the CR's
+from a file when it is read from disk, and converts all the LF's back
+to CR/LF's when the file is written to disk.  This is the ONLY
+modification that TM automatically makes to files.
+
+    To disable this, you can include "-n10" on the command line,
+and any CR's in the file will appear as "" characters at the end
+of each line.  The "-n.." option does two things:
+   1) it prevents the deletion/re-insertion of CR's.  Because
+of this, binary files can be edited.
+   2) it allows you to make ANY character represent line breaks.
+For example, "-n32" would treat all the spaces in a file as newlines,
+and CR's and LF's would appear as special characters.
+
+   One more important detail about using "-n..":  TM processes
+arguments -- including switches and the file name -- as they appear
+on the command line, from right to left.  When "-n.." appears
+after a file name, it then takes effect only AFTER the file is loaded,
+and therefore has no effect on the loading of the file.  Thus the
+CR's will be stripped from the file, and not re-inserted.  This
+effectively converts DOS-type files to UNIX.
+
+   To summarize:
+
+   "TM file"      : Read DOS or UNIX files,  writes in DOS format.
+   "TM file -n10" : Reads DOS or UNIX files,  writes in UNIX format.
+   "TM -n10 file" : CR's will be visible.  Writes files exactly as read.
+
+
+Emacs key bindings emulated:
+   ^<PNBF> : cursor movement
+   ^A : beginning of line
+   ^E : end of line
+   ^D : delete character
+   ^V : page down
+   Alt-V : page up
+   ^X ^C : exit
+   ^X ^S : save file
+   ^X ^F : find file
+   ^X ^W : write file (save as...)
+   ^K : kill to end of line.
+   ^G cancels menu.
+   ^Z, Alt-Z : scroll up, down one line
+   ^Y undeletes.
+   ^@ sets mark.
+   ^W deletes to mark.
+   ^T : transpose characters.
+   ^O inserts a line.
+   ^_ : undo.
+   Alt-B, Alt-F : back/forward word
+
+Re-bound Emacs functions:
+   Alt-A : append next delete to cut buffer, instead of replacing cut buffer.
+
+
+Ways in which simple editing primitives differ from Emacs:
+
+  ù When you type PgDn and then PgUp the cursor will be at the same
+    position as it was in before PgDn and PgUp (except when at extremities
+    of the text).  This is because in TM, page down/up operations move
+    both the cursor and the window pointer down by a certain number of
+    lines, where in EMACS, the cursor is moved to the top of the screen
+    for page up/dowm operations.
+
+  ù ^P and ^N (up and down arrows) move by physical lines (screen lines).
+    [^A and ^E still work by logical lines (delimited by newline characters). ]
+
+  ù When a line wraps around the end of the screen, Emacs indicates this
+    by displaying a "\" in the last column of each line which wraps around
+    to the next line.  TM highlights the character in the last column.
+
+  ù Search/Replace:  Incremental search is the only search, and "Search &
+    Replace" is integrated into incremental search.
+
+  ù A menu appears after ^X, and it is possible at that point to select
+    an option with cursor keys and Enter, but the Emacs meanings of
+    ^F, ^S, ^C, anf ^W are understood.
+
+  ù Since TM can only handle one file at a time, ^X^F may present a menu:
+    "File has unsaved changes. Save file or discard?"
+
+  ù Word-wise operations take only spaces as word delimiters, and both
+    Alt-B and Alt-F leave the cursor at the beginning of a word.
+
+

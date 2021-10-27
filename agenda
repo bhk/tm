@@ -1,0 +1,22 @@
+For TMACS 1.3:
+ - Group character-inserts (and deletes?) into single undo records.
+
+Possible safety holes:
+ - Errors at or near memory limits?  (small memory, or big files)
+
+Size reduction:
+  - Move mx_buf to the end of the .COM file to allow built-in macros, and
+    do Ctrl-T and word-wise operations as macros.
+
+For TMACS 2.x:
+ - Multiple buffers (in memory or on disk)
+ - status line (current line number)
+ - Restore value of unsaved after undo.
+
+Never (maybe?):
+ - stack of marks; "set mark" => push point;  "pop mark" => pop point off stack
+ - Allow "execution" of files:  For help files, use the beginning of
+   the file as macro definitions, and the rest of the file as
+   data... (Info mode)
+ - Write a macro compiler (HLL -> macro text),  and code patching program.
+   Command to save current macro state to disk?  (patching the executable?)

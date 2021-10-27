@@ -1,0 +1,40 @@
+dosmsg3:	db 'TM: bad argument$'
+dosmsg4:	db 'TM: Not enough memory$'
+banner:		db 'TM 1.2, copyright 1992 Brian Kelley'
+msg1:		db 'F',-33,' sav',-18, 0		; 'File saved.'
+msg2:		db 'New',-31,'.', 0		; 'New file.'
+msg3:		db 'Text ',-20,0		; 'Text buffer full!'
+msg4:		db 'Cut ',-20,0			; 'Cut buffer full!'
+msg5:		db -21,'set.',0			; 'Mark set.'
+msg6:		db -21,'not set!',0		; 'Mark not set!'
+msg7:		db -24,-18,0			; 'Aborted.'
+msg8:		db -22,-20,0			; 'Macro buffer full.'
+msg9:		db 'R',-25,'ing m',-23,'...',0	; 'Recording macro ...'
+msg10:		db -22, 'r',-25,-18,0		; 'Macro recorded.'
+msg11:		db 'LOOP!',0
+msg12:		db 'R-', -14, 0			; 'R-Search:'
+msg13:		db '(', -19, ')', 0		; '(full):'
+msg14:		db 'Search:',0
+msg15:		db 'Replace? (Y,N,A,Q) :',0
+msg16:		db 'Press Ctrl-S when done...',0
+msg17:		db 'Not found:',0
+msg18:		db 'ed.', 0
+msg19:		db 'full', 0
+msg20:		db 'buffer ', -19, '!', 0	; 'buffer full!'
+msg21:		db 'Mark ', 0
+msg22:		db 'M', -23, 0			; 'Macro '
+msg23:		db 'acro ', 0		; autocasing would save 3
+msg24:		db 'Abort', 0
+msg25:		db 'ecord', 0		; autocasing would save 1
+msg26:		db 'Find',-31,': ',0		; 'Find file: '
+msg27:		db -34,-31,': ',0		; 'Save file: '
+msg28:		db 'Read e',-32,'!',0		; 'Read error!'
+msg29:		db 'F',-33,' too big!',0	; 'File too big!'
+msg30:		db 'E',-32,' saving',-31,'!',0	; 'Error saving file!'
+msg31:		db ' f',-33, 0			; ' file'
+msg32:		db 'rror',0
+msg33:		db 'ile',0
+msg34:		db 'Save',0
+menudef ESC, 'Option:', 4, save, -34, save_as, 'save As', find_file, 'Load', chk_exit, 'Quit'
+menudef EXIT, ' and lose changes?', 2, menuret, 'No', exit, 'Yes'
+

@@ -1,0 +1,13 @@
+Insert char at end of line (BIOS) :
+	~250 instrucitons (not counting BIOS)
+	~1000 instructions (including BIOS)
+
+Keystroke - to - LITERAL :  7
+LITERAL - to -DISP_BYTE  : 40
+DISP_BYTE-to-DISP_BYTE   : 62  (display newline)
+DISP_BYTE-to-MAINLOOP    : 55 + spaces_to_end_of_line
+MAINLOOP -to-GETKEY	 : 28 + int10 (set cursor)
+GETKEY - to - int16	 :  8
+			 ----
+			  200 + spaces_to_end_of_line + int10_set_cursor
+

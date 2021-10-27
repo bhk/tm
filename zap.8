@@ -1,0 +1,18 @@
+main:	mov es,0b800
+	mov ax,0000
+l0:	mov di,0
+	mov cx,2048
+
+l1:	stosw
+	inc al
+	loop l1
+
+	inc ah
+	push ax
+	mov ah,1
+	int 016
+	pop ax
+	jz l0
+	ret
+
+		

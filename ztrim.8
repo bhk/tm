@@ -1,0 +1,191 @@
+;
+;  Trim leading 0's from a .COM file.  Expects to find a 3-byte "jmp ..."
+;  at start of file, which will be replaced with code to expand the
+;  new version after it is loaded, and then zero every byte down to the
+;  end of the header.  The 20-byte header itself will not be zeroed,
+;  so the first 20 bytes of the program must be don't-cares.
+;
+
+jmps MACRO jmp short #1 #EM
+
+	jmp start
+
+filename	dw
+text_limit	dw ?		; End of buffer space
+text_btm	dw ?		; End of file in buffer
+write_top	dw ?		; First byte to write out
+start_addr	dw ?		; Offset of start address from initial JMP
+
+dmsg_doserr:	db 'ztrim: DOS file error',13,10,'$'
+dmsg_toobig:	db 'ztrim: file too big error',13,10,'$'
+dmsg_nojmp:	db 'ztrim: No initial JMP ...',13,10,'$'
+dmsg_nosav:	db "ztrim: Not enough 0's to save any space.",13,10,'$'
+
+header:
+	mov si,01234	; squeezed program end
+	mov di,01234	; final program end
+	mov cx,01234	; amt. to move
+	std
+	rep movsb
+	mov cl,1	; amt. to zero
+	rep stosb
+	cld
+	jmp 01234
+
+HDR_SIZE	equ $ - header
+
+
+start:
+	mov ax,sp
+	dec ah
+	mov text_limit,ax
+	call load_file
+	mov si,text_top
+	lodsb
+	cmp al,0E9		; Look for JMP
+	mov dx,dmsg_nojmp
+	if nz jmp disp_dosmsg
+	lodsw
+	mov start_addr,ax	; Offset of 'start' from 0103
+	mov di,si
+	mov cx,-2
+	mov al,0
+	repe scasb		; Count number of zeros
+	neg cx			; CX = # of zeros + 3
+	cmp cx,HDR_SIZE + 1
+	ja >l1
+	mov dx,dmsg_nosav
+	jmp disp_dosmsg
+l1:	dec di
+	mov dx,di		; DX = 1st non-zero byte
+	sub di,HDR_SIZE		; DI = 1st byte of startup code
+	mov bp,di		; BP = start of compressed text
+	mov write_top,di
+	mov si,header
+	lodsb
+	stosb			; MOV si,
+	lodsw
+	mov ax,text_btm
+	sub ax,dx			; AX = # bytes to move
+	mov bx,ax			; BX = # bytes to mode
+	add ax,0FF + HDR_SIZE		; AX = address of last byte
+	stosw			; curend
+	lodsb
+	stosb			; MOV di,
+	lodsw
+	mov ax,text_btm
+	sub ax,text_top
+	add ax,0FF			; AX = final address of last byte
+	stosw			; finalend
+	lodsb
+	stosb			; MOV cx,
+	lodsw
+	mov ax,bx
+	stosw			; length
+	lodsw
+	stosw			; STD; REP
+	lodsw
+	stosw			; MOVSB ; MOV CL,
+	lodsb
+	mov al,cl
+	sub al,HDR_SIZE
+	stosb			; # of zeroes bytes to write
+	lodsw
+	stosw			; CLD ; REP
+	lodsw
+	stosw			; STOSB ; JMP
+	mov ax,start_addr
+	sub ax,HDR_SIZE - 3		; adjust the jump offset
+	stosw
+	call write_file
+	jmp exit_to_dos
+
+
+load_file:
+	mov si,081
+	mov di,filename
+	mov al,'s'
+	stosb			; Initial 's' for filename to write
+	mov dx,di
+l0:	lodsb			; Look for start of filename
+	cmp al,13
+	jz exit_to_dos
+	cmp al,32
+	je l0
+l1:	stosb			; Move filename to 081
+	lodsb
+	cmp al,32
+	ja l1
+	mov al,0
+	stosb
+	; open file
+	mov ax,03d00h		; open file named at DS:DX, AL=0 => read only
+	int 021h
+	jc load_error		; error, or file not found
+	xchg ax,bx		; for "mov bx,ax";  BX = file handle
+	mov cx,text_limit
+	inc cx			; ask for one too many bytes (uses slop)
+	mov dx,text_top
+	sub cx,dx
+	mov ah,03Fh		; code for Read from File function
+	call dosint		; DOS call (goto load_error if error)
+	cmp ax,cx		; if it read one too many...
+	jne >l2			;   file is too big
+	mov b[si],0		; (SI=081h)
+	mov dx,dmsg_toobig
+	jmp disp_dosmsg
+l2:	add ax,dx		; AX = no. of bytes + text_top
+	mov text_btm,ax		; set end of text area
+	call fclose_bx
+	ret
+
+
+
+
+; fclose_bx, write_bytes, dosint: On error, they jmp to jmp_catch
+fclose_bx:
+	mov ah,03Eh
+	jmps dosint
+
+
+;  Write text from BP to text_btm to file names at filename
+write_file:
+	mov dx,filename
+	mov ax,03c00
+	mov cl,0
+	call dosint
+	mov bx,ax
+	mov cx,text_btm
+	mov dx,bp
+	sub cx,dx
+	call write_bytes
+	call fclose_bx
+	ret
+
+; Write CX bytes at DX to file handle BX.
+; Modifies AH.
+write_bytes:
+	mov ah,040h
+	;jmp dosint
+
+; Execute int 021h and handle error.
+dosint:	int 021h
+	jnc ret
+	;fallthrough
+
+load_error:
+	mov dx,dmsg_doserr
+disp_dosmsg:
+	mov ah,09h		; print '$'-terminated string starting at DX
+	int 021h		; print error
+	;jmp exit_to_dos
+
+exit_to_dos:
+	mov ax,04c00
+	int 021
+
+
+
+text_top	equ $
+
+

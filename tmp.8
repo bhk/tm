@@ -1,0 +1,9 @@
+mvup1:	mov ch,bh
+l1:	call dec_ptr
+	jc ret			; return CARRY ==> end of text
+	call retreat_bx
+	cmp ch,bh
+	je l1			; loop while still on same line
+	cmp cl,bl
+	jc l1			; loop while CL < BL
+	ret			; return NO CARRY ==> success

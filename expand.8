@@ -1,0 +1,54 @@
+; Expand compressed text following this header.
+
+
+	db 0BFh		; mov di,
+dst_top	dw 04000h		; end of input (where text is expanded)
+	mov bx,08000h		; workspace for storing indices
+	mov si,src_top
+	lodsb
+	mov bl,al		; This is the addr:length escape character
+	stosb
+	lodsb
+	mov bh,al		; This is the index escape character
+l0:	stosb
+l1:	cmp si,dst_top
+	ja copydown
+	lodsb
+	cmp al,bh
+	jz get_index
+	cmp al,bl
+	jne l0
+	; Get two-byte substring expression
+	lodsw			; AX = addr:length
+	dec bx,2			; store this addr:length value
+	mov [bx],ax
+expand_string:
+	mov cl,al
+	and cl,0fh
+	inc cl
+	shr ax,4
+	add ax,dst_top
+	push si
+	mov si,ax
+	rep movsb
+	pop si
+	jmp l1
+get_index:
+	lodsb			; AL = string index
+	mov ah,0
+	add ax,ax
+	push bx
+	add bx,ax
+	mov ax,[bx]
+	pop bx
+	jmp expand_string
+
+
+copydown:
+	ret
+
+
+
+
+src_top	equ $
+

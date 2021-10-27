@@ -1,0 +1,31 @@
+Notes on screen update:
+
+   One method of updating the screen involves assuming that the screen,
+at the beginning of each operation, correctly represents the contents
+of the buffer.  Thus, associated with each operation on the text buffer would
+be some method for updating the screen to reflect that change.  Very
+efficient screen updates can be obtained by using this method.  One
+drawback is that the screen must be completely updated after each of these
+primitive operations; any operation built simply from these primitives
+would experience unduly slow screen update.
+   An alternative method would separate text modification from screen
+update.  Any number of text modifications could be performed, and somehow,
+when "update" is called, it figures out how best to make the screen reflect
+those changes.  The most general way of doing this would be complicated
+and inefficient.
+   A hybrid method would be to incorporate hints into the text modification
+routines.  Insert character could record that it has inserted a character.
+When it comes to update, it could either apply more specific updates, or
+fall back to the most general update screen algorithm.
+
+   Ted uses a hybrid, mostly relying on functions to update the screen.
+These functions are broken up into the text-modification and screen-update
+parts, however, so that higher-level functions can make use of the
+lower level text modification routines separate from their screen-update
+associates.  Screen-update functions are generalized, where possible, to
+simplify screen update. Functions which do not update their changes can fall
+back on the re-display screen function.
+
+To efficiently update the screen after a certain type of operation (delete
+character, insert character, etc.), 
+

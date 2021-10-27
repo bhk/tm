@@ -1,0 +1,273 @@
+; dos.8   :   MS-DOS file-related routines.
+
+public load_file, save_file, remove_CRs, find_file, save_as, save_and_find
+
+find_file:
+	call filetest
+	and al,b[di]		; AL = filename && unsaved
+	jz load_named		; If no name, or no unsaved changes, load file
+	mov si,LOADmenu		; Else ask "Lose changes?"
+	jmp do_menu
+
+save_and_find:
+	call save_file
+	;jmp load_named
+
+load_named:
+	mov dl,msgloadfile
+	call edit_name
+	mov ax,reset_load
+	jmp before_catch		; Restart at reset_load
+
+
+; Load file into the text buffer.  This should ONLY be called from once
+; place: in the initialization code, before editing variables are intialized.
+; catch_error non-reentrancy is not a problem as long as load_file is called
+; before the initialization code performs the initial catch_error.  When
+; "Load" is selected by the user, find_file should reset the stack and jump
+; to the point in the initialization code calls load_file.
+; load_file should always return whence it was called; it can't jump to
+; jmp_error.
+; On entry:
+;    [081...] holds file name (zero-terminated)
+; On return:
+;    All registers undefined.
+load_file:
+	call filetest		; DX = 081, DI = &unsaved, Z = (b[081] == 0)
+	;mov b[di],0		; for "mov unsaved,0"
+	mov text_btm,text_top	; Leave buffer in a known state
+	jz ret			; Return if no filename
+	; open file
+	mov ax,03d00h		; open file named at DS:DX, AL=0 => read only
+	int 021h
+	jc load_chkerr		; error, or file not found
+	xchg ax,bx		; for "mov bx,ax";  BX = file handle
+	call catch_error
+	jc load_error
+	mov cx,text_limit
+	inc cx			; ask for one too many bytes (uses slop)
+	call set_size		; DX = start of buffer; CX = max # of bytes + 1
+	mov ah,03Fh		; code for Read from File function
+	call dosint		; DOS call (goto load_error if error)
+	cmp ax,cx		; if it read one too many...
+	jne >l2			;   file is too big
+	mov b[si],0		; (SI=081h)
+	mov al,msgfilebig
+	jmps l_disp_status_msg
+l2:	add ax,dx		; AX = no. of bytes + text_top
+	mov text_btm,ax		; set end of text area
+	call fclose_bx
+	test verbatim
+	if z call remove_CRs	; remove CR's if NOT verbatim
+	cmp b[msg0-1],'y'
+	jz ret			; return now if being called at startup
+	mov al,msgloaded
+	jmps l_disp_status_msg	; say:  Loaded "filename"
+
+
+; Check error after open returned Carry
+load_chkerr:
+	cmp al,2		; 2 => file not found
+;;	mov al,msgnewfile	; msgnewfile == 2
+	jz l_disp_status_msg
+load_error:
+	mov al,msgreaderror
+; Abort with message AL
+l_disp_status_msg:
+	jmp disp_status_msg		; Display message and return
+
+
+; Small reused segment of code...
+set_range:
+	mov cx,text_btm
+set_size:
+	mov dx,text_top
+	sub cx,dx
+	ret
+
+; fclose_bx, write_bytes, dosint: On error, they jmp to jmp_catch
+fclose_bx:
+	mov ah,03Eh
+	jmps dosint
+
+write_text:
+	test verbatim
+	jz add_CRs
+	call set_range
+	;jmp write_bytes			;     save data DIRECTLY
+
+; Write CX bytes at DX to file handle BX.
+; Modifies AH.
+write_bytes:
+	mov ah,040h
+	;jmp dosint
+
+; Execute int 021h and handle error.
+dosint:	int 021h
+	jnc ret
+	jmp jmp_catch
+
+
+;
+;  save_as and save_file
+;
+;  save_as asks for file name first
+save_as:
+	mov dl,msgsavefile
+	call edit_name
+	;jmp save_file
+
+
+; save file to disk
+;    If (!verbatim) then output all LF's as CR/LF's, using the following
+; loop:
+;	1. Output all bytes up to the next LF.
+;	   (If no LF, output rest of the text and return).
+;	2. Output CR/LF and advance past the LF.
+;	3. goto 1
+save_file:
+	call filetest		; mov dx,081; mov di,&unsaved; test b[081]
+	jz save_as
+	call catch_error
+	jc save_failure
+	mov ah,03Ch			; open file named at DX
+	mov cl,0
+	call dosint
+	xchg ax,bx			; for "mov bx,ax";  BX = file handle
+	call write_text
+	call fclose_bx
+	mov unsaved,0
+	mov al,msgfilesaved
+s1:	jmp l_disp_status_msg
+save_failure:
+	call disp_page			; fix screen after DOS "Abort...?" msg
+	mov al,msgerrorsaving		; say "Error saving file"
+	jmp s1
+
+
+; Expand all LF's to CR/LF's, save file, then remove all CR's.
+; Copies text from [text_top,text_btm] to [new_top,text_limit],
+; then back again.
+;   Watch for error conditions within areas where ES != video buffer
+add_CRs:
+	mov di,text_limit
+	mov si,text_btm
+	mov b[si],0	; Prevent the slop byte from causing insertion of a CR
+	std		; perform move, moving one extra byte (uses slop)
+l1:	cmp si,text_top
+	jb >l9			; done
+	lodsb			; al = *[si--]
+l2:	stosb			; *[di--] = al
+	cmp al,10
+	jnz l1
+	mov al,13
+	cmp di,si
+	jne l2			; di > si : still enough room for another CR
+	jmp l1			; not enough room; just copy bytes...
+l9:	cld
+	inc di
+	mov dx,di		; DX = start of new copy
+	mov cx,text_limit
+	sub cx,dx		; CX = number of bytes
+	call write_bytes
+; call remove_CRs
+; remove_new_crs  : Copies text from [di,text_limit] to [text_top,text_btm]
+	inc si
+	xchg si,di		; now SI = new copy, DI = text_top
+	;jmp remove_loop	; fall through
+
+; remove_loop:  while removing CR's, move CX bytes from DS:SI to ES:DI.
+remove_loop:
+	jcxz >r9
+r1:	lodsb
+	cmp al,13
+	if nz stosb
+	loop r1
+r9:	mov text_btm,di
+	ret
+
+remove_CRs:
+	call set_range		; CX = size, DX = text_top
+	mov di,dx
+	mov si,di
+	jmp remove_loop
+	;call remove_loop
+	;ret
+
+edit_name:
+	mov bp,081
+	mov si,bp
+	mov di,fname_buf
+	push si
+	call en_movefname		; save copy of fname
+	pop si
+	cmp dl,msgloadfile
+	jnz edit_start
+edit_restart:
+	mov b[si],0			; start with new file name if loading
+edit_start:	
+	mov al,dl
+	call disp_status_msg
+	mov si,bp
+	mov al,32
+l0:	call disp_char
+en_disp_lpend:
+	lodsb
+	test al
+	jnz l0
+	mov [si],al		; add an extra zero
+	dec si			; SI now points to first terminating zero
+	call set_cursor
+en_loop:
+	call dispatch_key
+	dvect 27, en_esc
+	dvect 13, en_ret
+	dvect 8, en_bak
+	dvect 7, en_esc
+	db 0
+	jb en_loop
+en_lit:	mov [si],al			; Add literal character to file name
+	jmp en_disp_lpend
+
+en_esc:	pop ax				; return two levels...
+	dec clrstat			; clrstat=1 => clear before next getkey
+	mov si,fname_buf		; SI = fname_buf
+	mov di,bp			; DI = 081
+en_movefname:
+	mov cx,FNAME_SIZE / 2
+	rep movsw
+en_ret:	ret				; return two levels
+
+en_bak:	dec si
+	cmp si,bp
+	jb edit_start
+	jmp edit_restart
+
+; Initialize registers and test b[081]
+filetest:
+	mov di,offset unsaved
+	mov si,081h
+	mov dx,si
+	mov al,b[si]
+	test al		; test filename
+	ret
+
+dispatch_key:
+	call getkey
+dispatch_al:
+	pop di
+l1:	test b[di]
+	jz >g2
+	scasb
+	je >g1
+	inc di
+	jmp l1
+g1:	push ax
+	mov al,[di]
+	cbw
+	add di,ax
+	pop ax
+g2:	inc di
+	cmp al,32
+	jmp di
+
