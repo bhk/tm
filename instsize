@@ -1,9 +1,0 @@
-mov r,ib	2
-mov r,iw	3
-
-mov AX,mem	3
-mov r,mem	4
-mov r,[r]	2	r = BX,SI,DI  (size = 3 for [bp])
-
-mov mem,ib	5
-mov mem,iw	6

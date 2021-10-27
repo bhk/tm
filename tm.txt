@@ -1,4 +1,4 @@
-TM, version 1.3
+TM, version 1.4
 
 Special features:
 
@@ -94,7 +94,7 @@ keys have special functions:   (^... means Control-...)
 		  (See "Graphics Characters", below.)
    Alt-M	: Convert newlines.  Remove all ^M characters from a file.
 		  (See "Newline Characters", below)
-   
+
    Escape, ^X	: Bring up special functions menu ("Save", "Quit", etc.)
 
 
@@ -435,5 +435,3 @@ Ways in which simple editing primitives differ from Emacs:
 
   ù Word-wise operations take only spaces as word delimiters, and both
     Alt-B and Alt-F leave the cursor at the beginning of a word.
-
-
