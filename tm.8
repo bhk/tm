@@ -1182,7 +1182,7 @@ menu_loop:
 ;  Check list of action letters for AL
 	and al,95		; Make lower-case upper
 	mov di,[si+1]
-	call get_assoc		; NoCarry is true if there was a match
+	call get_assoc_b	; NoCarry is true if there was a match
 	jc menu_loop
 	mov bh,[di]		; BH = [si++]
 ; Select item BH
@@ -1307,10 +1307,24 @@ beep:	push ax,dx
 ;	AL = character to search for
 ;	DI = pointer to list of byte,word pairs
 ; On exit:
-;	DI = value (if AH was found)
+;       NoCarry => AL was found
+;	           DI = ptr to value
+;       Carry => AL was not found
+;                DI = ptr to end (byte following the terminating 0 byte)
 ;	All other regs, unchanged.
+
 l0:	scasw				; for "inc DI,2"
 get_assoc:
+	scasb				; cmp al,[di++]
+	jz ret				; If AL is found, return NoCarry
+	cmp b[di-1],1
+	jnc l0
+	ret				; If [di-1] == 0, return with Carry
+
+
+
+l0:	inc di				; for "inc DI,2"
+get_assoc_b:
 	scasb				; cmp al,[di++]
 	jz ret				; If AL is found, return NoCarry
 	cmp b[di-1],1

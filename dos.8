@@ -252,22 +252,49 @@ filetest:
 	test al		; test filename
 	ret
 
+
+; dispatch_key   : Calls getkey and falls through to dispatch_al
+;                  after converting character to lower-case
+;
+; dispatch_al    : Jumps to address associated with al
+;
+; On entry:
+;    return address = list of two-byte bindings (dvect structures), terminated by a zero key 
+;                        first byte  = characters to compare with al
+;                        second byte = relative offset of jump address to take
+; On exit:
+;    If match is found, execution continues at jump address
+;    If no match, execution continues at byte following the terminating zero byte.
+;
+;
+
+
 dispatch_key:
 	call getkey
 dispatch_al:
 	pop di
-l1:	test b[di]
-	jz >g2
-	scasb
-	je >g1
-	inc di
-	jmp l1
-g1:	push ax
+	call get_assoc_b
+	jc >g2			; not found
+	push ax			; Found
 	mov al,[di]
 	cbw
 	add di,ax
 	pop ax
-g2:	inc di
-	cmp al,32
+g2:	cmp al,32
 	jmp di
 
+
+;l1:	test b[di]
+;	jz >g2
+;	scasb
+;	je >g1
+;	inc di
+;	jmp l1
+;g1:	push ax
+;	mov al,[di]
+;	cbw
+;	add di,ax
+;	pop ax
+;g2:	inc di
+;	cmp al,32
+;	jmp di

@@ -1,7 +1,6 @@
 tm.com: *.8
 	dosbox asm.bat -exit
-	rm TM.COM
-	mv STM.COM tm.com
-	rm -f *.SYM ZTRIM.COM
+	mv STMU.COM tm.com
+	rm -f TMU.COM ZTRIM.COM *.SYM
 
-clean: ; rm -f *.SYM *.ERR STM.COM ZTRIM.COM
+clean: ; rm -f STMU.COM TMU.COM ZTRIM.COM *.SYM *.ERR

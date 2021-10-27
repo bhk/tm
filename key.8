@@ -81,7 +81,7 @@ l1:	test mxptr
 	call main_do
 	jmp l1
 	
-; Start recording a macro, after clearing present definition.
+; Start/Stop recording a macro, after clearing present definition.
 ; On entry:
 ;	AL = code for alt-Fx that started this (will be converted to Fx code)
 do_makemx:

@@ -17,6 +17,7 @@
 ;
 ; "State" of the search consists of:    srchend (SI), and point (DI)
 
+
 ; isupper: set C if #1 is in range 'A'...'Z';  changes contents of #1
 isupper MACRO
 	sub #1,'A'
@@ -34,14 +35,17 @@ NONCSMASK	equ	(not 32)	; AND al,0DF	converts LC to UC
 ;					   msgsrch AND 3 == msgrplc
 ;				Also:	   msgedit == 3
 
-; srchmode, when set, indicates that a replace operation is taking place,
-;    so that the search code can behave accordingly.  Further, a certain value
-;    of srchmode indicates that the replace operation is in "replace all" mode.
-;    Also, srchmode is set while a replace macro is being recorded so
-;    ctrl-S can be interpreted to mean "stop recording".
-;; Declared in init.8:
-;; srchmode	db	0		; 3 => already in search/replace
-					; 4 => srch/replace ALL occurrences
+
+; do_search is entered when incremental search is first started, and
+; possibly later to terminate recording of a replacement macro.
+;
+; Typically, it starts incremental search mode, but it is also used to find the
+; next match once in search mode, or to stop macro recording when in search/replace mode.
+;
+; srchmode is one value that identifies how the searchkey should be interpreted.
+;          3 => already in search/replace     (recorded macro)
+;          7 => srch/replace ALL occurrences
+;
 
 do_rsearch:		; set AL = FF and continue to do_search
 	db 0B8h						; "MOV AX, ..."
@@ -124,7 +128,7 @@ srch_found:
 ;	CX = srchend (found) or srchstr (error)
 ;	AL = prompt message (AL=msgnotfound indicates string not found)
 srch_input:
-	or al,srchmode		; If srchmode, AL = msgrplc
+	or al,srchmode		; If srchmode==3, AL = msgrplc
 	cbw
 	mov bp,ax		; BP = msgsrch,msgrsrch,msgnotfound,msgrplc
 	call mov_point_di
@@ -136,7 +140,7 @@ srch_dispmsg:
 	call disp_status_msg	; display "Search: "
 	call srch_dispstr	; show string AND set:  SI=srchend, CX=srchstr
 	cmp bp,msgrplc		; test srchmode
-	if z jmp rplc_query
+	if ae jmp rplc_query
 srch_getchar:
 	call dispatch_key
 	dvect 8, srch_bs		; Backspace
@@ -238,12 +242,20 @@ rplc_play:
 	push text_btm
 	sub si,cx
 	call rplc_delete
-	cmp bp,msgrplc	; BP is either "...Search: " or "Replace"
 	mov si,mx_play		; call mx_play with AX=0
-	je >l1
-	mov al,3		; msgedit == 3
-	mov srchmode,al		; srchmode=3 ; in search & replace now
+
+	mov al,3
+	cmp al,srchmode
+	jbe >l1                 ; we're already replacing
+	mov srchmode,al         ; srchmode=3 indicating we're replacing now
 	call disp_status_msg
+
+;	cmp bp,msgrplc	; BP is either "...Search: " or "Replace"
+;	je >l1
+;	mov al,3		; msgedit == 3
+;	mov srchmode,al		; srchmode=3 ; in search & replace now
+;	call disp_status_msg
+
 	mov si,mx_record	; call mx_record with AX=0
 l1:	mov al,18		; Ctrl-R represents the search/replace macro
 	call si			; Record or Play macro "0"
@@ -259,13 +271,13 @@ l1:	mov al,18		; Ctrl-R represents the search/replace macro
 ;	jmp rplc_resume		; pop text_btm, calculate BX, and resume search
 
 rplc_all:
-	inc srchmode
+	mov srchmode,7
 	;jmp rplc_query
 ; After text is found after a macro is recorded, rplc_query is called.
 ; On entry:  SI=srchend; CX=srchstr
 rplc_query:
 	cmp srchmode,4
-	je rplc_play			; go if in "Replace ALL" mode
+	jae rplc_play			; go if in "Replace ALL" mode
 	call dispatch_key
 	db 0
 	jb rplc_quit

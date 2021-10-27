@@ -40,9 +40,12 @@ color		db ?		; current color
 
 EVEN
 
-; ** These values are accessed in order during initialization of memory **
-; ** Check initialization code before re-ordering these **
-;    They are organized in descending order to be assigned when calculated.
+;;
+;; key.8 variables
+;;
+;; **** These values are accessed in order during initialization  ****
+;; **** Check initialization code before re-ordering these ****
+;;    They are organized in descending order to be assigned when calculated.
 dyn_buffers:
 mxstackmax	dw		; same as mxmax
 mxmax		dw ?		; end of macro data buffer region
@@ -62,13 +65,7 @@ srchdir_n_mask	dw
 srchdir		db ?		; search direction
 srchcsmask	db ?		; 0FF if case sensitive, 95 if not
 srchtextmax	dw ?		; = text_btm - len(srchstr)
-; srchmode, when set, indicates that a replace operation is taking place,
-;    so that the search code can behave accordingly.  Further, a certain value
-;    of srchmode indicates that the replace operation is in "replace all" mode.
-;    Also, srchmode is set while a replace macro is being recorded so
-;    ctrl-S can be interpreted to mean "stop recording".
-srchmode	db ?		; 3 => already in search/replace
-				; 4 => srch/replace ALL occurrences
+srchmode	db ?
 srcholdlen	dw 0		; 0 => no previous search string
 
 ;;
@@ -176,7 +173,7 @@ menudef MACRO
 #1menuL: db			; define label for list of action letters
 #EM
 
-dvect MACRO db #1, (#2 - $ - 1) #EM
+dvect MACRO db #1, (#2 - $) #EM
 
 jmps MACRO jmp short #1 #EM
 
@@ -198,9 +195,20 @@ jmpon MACRO
 	jz #2
 #EM
 
+; Bind one-byte keys to two-byte values (usually addresses)
+;
 bind MACRO #rx2l
 	db  #x		; byte representing key
 	dw  offset #1	; word holding associated value
+  #er
+#em
+
+
+; Bind one-byte keys to one-byte values
+;
+bind_b MACRO #rx2l
+	db  #x		; byte representing key
+	db  #1	; word holding associated value
   #er
 #em
 
@@ -289,20 +297,20 @@ msgfilesaved_addr:
 	db 'undo',0			; 44
 
 menudef ESC, 'Option:', 4, save_file, -39, save_as, 'ﬁe As', find_file, -35, chk_exit, -24
-	bind 1, 'S',19			; 'S' and ctrl-S execute "Save"
-	bind 2, 'A',23			; 'A' and ctrl-W execute "save As"
-	bind 3, 'L',6			; 'L' and ctrl-F execute "Load"
-	bind 4, 'Q',3			; 'Q' and ctrl-C execute option 2
+	bind_b 1, 'S',19			; 'S' and ctrl-S execute "Save"
+	bind_b 2, 'A',23			; 'A' and ctrl-W execute "save As"
+	bind_b 3, 'L',6			; 'L' and ctrl-F execute "Load"
+	bind_b 4, 'Q',3			; 'Q' and ctrl-C execute option 2
 	db 0
 
 menudef EXIT, 'Ë and lose€?', 2, menuret, 'No', exit_to_dos, 'Yes'
-	bind 1, 'N'
-	bind 2, 'Y'
+	bind_b 1, 'N'
+	bind_b 2, 'Y'
 	db 0
 
 menudef LOAD, '›:ÿ unﬁÓ', 2, save_and_find, 'Ÿ€', load_named, '⁄'
-	bind 1, 'S'
-	bind 2, 'R'
+	bind_b 1, 'S'
+	bind_b 2, 'R'
 	db 0
 
 
