@@ -433,7 +433,7 @@ go_scrlup:
 ; Move point and cursor down one line
 ; On exit:
 ;   (jc ...) Carry => end of text before next line
-;   (ja ...) NoCarry & NotEqual => 
+;   (ja ...) NoCarry & NotEqual =>
 ;      DI = point+1,  BX = cursor + ????
 ;dn1:	mov di,point		; skip maxX characters or to CR
 ;	mov bx,cursor
@@ -863,7 +863,7 @@ go_up:	call up1
 ; 'wnd_ptr', so BX may point off screen (line -1, column 0, for example).
 ;
 ; On entry: [DI] points to character where cursor will be
-;	    BX containts cursor position     
+;	    BX containts cursor position
 ; if bl=0 then bl = wndwid; bh--
 ; if [DI] == tabchar  or  [DI] == newline then
 ;   decrement SI to previous CR (or top of text)
@@ -1031,7 +1031,7 @@ disp_status_msg:
 	neg al
 	mov [si],al
 	;jmp disp_stat_hlt
-	
+
 disp_stat_hlt:
 	mov al,hltcolor
 ; Same as disp_statline, but string is displayed in color AL.
@@ -1258,8 +1258,8 @@ check_disp_mode:
 	cmp al,7		; test BIOS mode
 	mov al,0b8		; AX = 0b800 = CGA screen segment
 	jb >c1			; use segment b800 for video modes < 7
-	if a sub al,0b0		; use BIOS for mode > 7 (screen_seg = 0) 
-	sub al,08		; use segment b000 for mode 7 
+	if a sub al,0b0		; use BIOS for mode > 7 (screen_seg = 0)
+	sub al,08		; use segment b000 for mode 7
 c1:	mov screen_page,al	;  else !=0 and !=1 ==>  use as segment MSB
 ; Now set scrwid and scrhgt  (AH still == # of columns)
 	mov si,044h
@@ -1285,7 +1285,7 @@ get_hd_val:
 chk_white:			; returns Z if [DI] is whitespace char
 	;mov di,point
 	mov al,[di]
-cmp_al_white:			; returns Z if AL is a whitespace char	
+cmp_al_white:			; returns Z if AL is a whitespace char
 	jmpon 32, ret
 	jmpon 13, ret
 	jmpon tabchar, ret
