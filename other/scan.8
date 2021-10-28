@@ -1,14 +1,24 @@
 ;
-;  scan.8  :  Read keys from the BIOS get-character function and
-;		display the scan codes received.  Extended codes
-;		are displayed as a negative number. (0,x --> -x)
+; scan.8  :  Read keys from the BIOS get-keystroke function and
+;   display the resulting values in decimal.  Control and Alt
+;   status is indicated with prefixes.
 ;
+;   When the ASCII value (AL) is non-zero, display that value.
+;   When AL==0, display the scan code (AH), preceded by "#".
+;
+; Observe:
+;   Ctrl-A ... Ctrl-Z  ->  1 ... 31
+;   Alt-<ALPHANUM/Fn>  ->  #SCANCODE   (AL = 0)
+;   Ctrl-SPACE         ->  C-32        (AL = 32)
+;   Alt-SPACE          ->  A-32        (AL = 32)
+;   Alt-<OTHER>        ->  nothing
 
 
 main:	call getkey
+	call show_shift
 	test al
 	jnz >l1
-	mov dl,'-'
+	mov dl,'#'        ;; show scan code (AH) instead
 	call dispchar
 	mov al,ah
 l1:	call showdec
@@ -16,19 +26,39 @@ l1:	call showdec
 	call dispchar
 	cmp al,27
 	jnz main
-	ret
+        ret
 
-getkey:	mov ah,1
-	int 016h
-	jz getkey		; loop until key is hit
-	mov ah,0
+; Display control and shift state by printing 'C-', 'A-', 'C-A-' or ''
+;
+show_shift:
+	push ax
+        mov ah,02h
+        int 016h
+        and al,12
+        mov dx, prefix
+        mov ah, 0
+        add dx, ax
+        mov ah, 09h		;; write string
+        int 021h
+        pop ax
+        ret
+
+prefix: db '$...', 'C-$.', 'A-$.', 'C-A-$'
+
+
+; Wait for keypress and get key
+; On exit:
+;   AH = scan code
+;   AL = ASCII value (or 0 if non-ASCII)
+;
+getkey:	mov ah,010h
 	int 016h		; get what key was hit in AX
-	ret
-
+        ret
 
 ; showdec : Display decimal representation of number.
 ;   On entry: AL = n (number to display)
 ;   Preserves all registers except DL.
+;
 showdec:
 	push ax
 	aam			; AH = AL/10 ; AL = AH % 10
@@ -39,11 +69,10 @@ showdec:
 	add dl,ah
 	pop ax
 	;jmp dispchar
-	
-
 
 ; dispchar  :  	Output character in DL to the screen
 ;	Preserves all registers.
+;
 dispchar:
 	push ax
 	mov ah,2			; func. 2 = char output
