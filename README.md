@@ -35,11 +35,4 @@ TM is written in A86 assembly language.
 
 ./Makefile is intended to be run from a POSIX-ish environment.  It invokes
 `dosbox` to build TM, assuming that the DOSBOX configuration will place A86
-in the path and reflect the current working directory.  For example, the
-DOSBox preference file (on MacOS) would include something like:
-
-    [autoexec]
-    ...
-    PATH = <A86DIR>;Z:\
-    MOUNT C .
-    C:
+in the path.
