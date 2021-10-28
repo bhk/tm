@@ -97,8 +97,8 @@ before_catch:
 do_enter:
 	xchg ax,dx		; for "mov al,dl"  ; DL = newline
 literal:
-	pushi do_literal
-	jmp ret_do
+	pushi do_literal	; (pushi + jmp) is smaller than (call + ret)
+	jmp ret_do              ; ...but only when jmp is short
 
 do_ctrlq:
 	call getkey		; get next key typed
@@ -1306,15 +1306,15 @@ beep:	push ax,dx
 	ret
 
 
-; get_assoc : Find byte in (byte,word) association table.
+; get_assoc : Search a (key, value) association table.  Each key
+;     is a byte; each value is a word. A zero key terminates the table.
+;
 ; On entry:
-;	AL = character to search for
-;	DI = pointer to list of byte,word pairs
+;	AL = key to search for
+;	DI = pointer to sequence of (byte, word) pairs
 ; On exit:
-;       NoCarry => AL was found
-;	           DI = ptr to value
-;       Carry => AL was not found
-;                DI = ptr to end (byte following the terminating 0 byte)
+;       NoCarry => found;   DI = ptr to value in matching pair
+;       Carry => not found; DI = ptr to byte after terminating zero
 ;	All other regs, unchanged.
 
 l0:	scasw				; for "inc DI,2"
@@ -1325,7 +1325,7 @@ get_assoc:
 	jnc l0
 	ret				; If [di-1] == 0, return with Carry
 
-
+; get_assoc_b : Like get_assoc, but values are bytes, nor words.
 
 l0:	inc di				; for "inc DI,2"
 get_assoc_b:

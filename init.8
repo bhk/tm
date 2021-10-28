@@ -43,9 +43,10 @@ EVEN
 ;;
 ;; key.8 variables
 ;;
-;; **** These values are accessed in order during initialization  ****
-;; **** Check initialization code before re-ordering these ****
+;; **Warning**: These values are accessed in order during memory
+;;    initialization.  Check initialization code before re-ordering these.
 ;;    They are organized in descending order to be assigned when calculated.
+
 dyn_buffers:
 mxstackmax	dw		; same as mxmax
 mxmax		dw ?		; end of macro data buffer region
@@ -60,6 +61,7 @@ text_limit	dw ?		; maximum value for text_btm
 ;;
 ;;  srch.8 variables:
 ;;
+
 srchend		dw ?		; ptr to end of srchstr[]
 srchdir_n_mask	dw
 srchdir		db ?		; search direction

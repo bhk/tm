@@ -204,7 +204,7 @@ edit_name:
 	jnz edit_start
 edit_restart:
 	mov b[si],0			; start with new file name if loading
-edit_start:	
+edit_start:
 	mov al,dl
 	call disp_status_msg
 	mov si,bp
@@ -252,21 +252,20 @@ filetest:
 	ret
 
 
-; dispatch_key   : Calls getkey and falls through to dispatch_al
-;                  after converting character to lower-case
+; dispatch_al : Dispatch AL.
+; dispatch_key : Get key code in AL and then dispatch it.
 ;
-; dispatch_al    : Jumps to address associated with al
+; These functions accept a sequence of "dvect" structures: (key, value)
+; pairs where key is a key code (byte) and value is PC-relative offset
+; (byte-sized) to a code address.  These are passed as "immediate" arguments
+; -- that is, they appear in memory after the call instruction -- and are
+; terminated with a "db 0".
 ;
-; On entry:
-;    return address = list of two-byte bindings (dvect structures), terminated by a zero key 
-;                        first byte  = characters to compare with al
-;                        second byte = relative offset of jump address to take
 ; On exit:
-;    If match is found, execution continues at jump address
-;    If no match, execution continues at byte following the terminating zero byte.
-;
-;
-
+;   If AL matches a key, these functions will jump (or "return to") the
+;     address named in the matching dvect.
+;   If no match is found, the function jumps (returns to) the address
+;     following the terminating "db 0".
 
 dispatch_key:
 	call getkey
@@ -281,19 +280,3 @@ dispatch_al:
 	pop ax
 g2:	cmp al,32
 	jmp di
-
-
-;l1:	test b[di]
-;	jz >g2
-;	scasb
-;	je >g1
-;	inc di
-;	jmp l1
-;g1:	push ax
-;	mov al,[di]
-;	cbw
-;	add di,ax
-;	pop ax
-;g2:	inc di
-;	cmp al,32
-;	jmp di
