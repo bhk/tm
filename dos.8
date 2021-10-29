@@ -117,10 +117,6 @@ save_as:
 	call edit_name
 	;jmp save_file
 
-save_and_exit:
-  call save_file
-  call exit_to_dos
-
 ; save file to disk
 ;    If (!verbatim) then output all LF's as CR/LF's, using the following
 ; loop:
