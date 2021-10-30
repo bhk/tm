@@ -1413,8 +1413,6 @@ chk_abort:
 	mov ah,1
 	int 016h
 	jz ret
-	mov ah,0
-	int 016h
 	cmp al,7
 	jne ret
 	;jmp do_abort
