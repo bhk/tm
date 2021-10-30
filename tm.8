@@ -1250,6 +1250,10 @@ exitOK:	call clr_statline
 exit_to_dos:
 	mov ax,04c00
 	int 021h
+	
+save_and_exit:
+  call save_file
+  jmp exit_to_dos
 
 ; Set srcwid, scrhgt, and screen_seg (if BIOS mode is known)
 check_disp_mode:
