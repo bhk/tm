@@ -20,7 +20,7 @@ load_named:
 	jmp before_catch		; Restart at reset_load
 
 
-; Load file into the text buffer.  This should ONLY be called from once
+; Load file into the text buffer.  This should ONLY be called from one
 ; place: in the initialization code, before editing variables are intialized.
 ; catch_error non-reentrancy is not a problem as long as load_file is called
 ; before the initialization code performs the initial catch_error.  When
@@ -235,7 +235,7 @@ en_esc:	pop ax				; return two levels...
 en_movefname:
 	mov cx,FNAME_SIZE / 2
 	rep movsw
-en_ret:	ret				; return two levels
+en_ret:	ret
 
 en_bak:	dec si
 	cmp si,bp

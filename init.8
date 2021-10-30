@@ -299,13 +299,13 @@ msgfilesaved_addr:
 	db 'undo',0			; 44
 
 menudef ESC, 'Option:', 4, save_file, -39, save_as, 'ﬁe As', find_file, -35, chk_exit, -24
-	bind_b 1, 'S',19			; 'S' and ctrl-S execute "Save"
-	bind_b 2, 'A',23			; 'A' and ctrl-W execute "save As"
+	bind_b 1, 'S',19		; 'S' and ctrl-S execute "Save"
+	bind_b 2, 'A',23		; 'A' and ctrl-W execute "save As"
 	bind_b 3, 'L',6			; 'L' and ctrl-F execute "Load"
 	bind_b 4, 'Q',3			; 'Q' and ctrl-C execute option 2
 	db 0
 
-menudef EXIT, 'Ë and lose€?', 3, menuret, 'No', exit_to_dos, 'Yes', save_and_exit, 'Save'
+menudef EXIT, 'Ë and lose€?', 3, menuret, 'No', exit_to_dos, 'Yes', save_and_exit, 'Ÿ'
 	bind_b 1, 'N'
 	bind_b 2, 'Y'
 	bind_b 3, 'S'

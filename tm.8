@@ -1008,13 +1008,10 @@ l1:	mov bl,[si]		; Get next digit
 	cmp bl,32
 	jbe ret
 
+        ;; get hex digit value
 	and bl, not 030h
 	cmp bl, 'A'
 	if ae sub bl, 'A' - 10
-;	or bl,32			; A..Z  -->  a..z
-;	cmp bl,'a'
-;	if ae sub bl,'a'-('9'+1)	; a..f  -->  '0'+10..15
-;	sub bl,'0'			; 0...9a...f  -->  0...15
 
 	cmp bl,bh
 	jae sa_err
@@ -1250,10 +1247,13 @@ exitOK:	call clr_statline
 exit_to_dos:
 	mov ax,04c00
 	int 021h
-	
+
 save_and_exit:
-  call save_file
-  jmp exit_to_dos
+	call save_file
+	call filetest
+	jz chk_exit		; user canceled "Enter filename:"
+	jmp exit_to_dos
+
 
 ; Set srcwid, scrhgt, and screen_seg (if BIOS mode is known)
 check_disp_mode:
