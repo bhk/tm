@@ -32,14 +32,20 @@ do_mx:
 mx_activate:
 	call mx_find		; DI = position of macro (or buf end); AH = key
 	jcxz ret		; macro not defined => return
-	call chk_abort		; User interrupt?
-	mov si,mxsp		; Save current ptr on mx stack
+	;; check for interrupt char (^G)
+	mov ah,1
+	int 016h
+	jz >m0			; no character
+	cmp al,7
+	jne >m0			; not ^G
+	jmp do_abort
+m0:	mov si,mxsp		; Save current ptr on mx stack
 	dec si,2
 	cmp si,mxstackmin	; Is stack full?
-	jae >l1
+	jae >m1
 	mov al,msgloop
 	jmp msg_error
-l1:	mov ax,mxptr		; Save current mxptr in mxstack
+m1:	mov ax,mxptr		; Save current mxptr in mxstack
 	mov [si],ax
 	mov mxsp,si
 	;jmp mx_nextptr		; set mxptr
@@ -80,7 +86,7 @@ l1:	test mxptr
 	jz ret
 	call main_do
 	jmp l1
-	
+
 ; Start/Stop recording a macro, after clearing present definition.
 ; On entry:
 ;	AL = code for alt-Fx that started this (will be converted to Fx code)
@@ -156,9 +162,6 @@ l1:	jcxz ret
 	repne scasb		; search for 0
 	jmp l1
 
-;;getkey_test:
-;;	pushi cmp_al_32		; cmp_al_32 on the way returning to caller
-;;	;jmp getkey		; fall through
 
 ; getkey:
 ;    Get a key from a) the unget buffer,  b) the macro buffer,  or c) BIOS
@@ -168,6 +171,7 @@ l1:	jcxz ret
 ;	AL = key typed
 ;	Flags = reflect a "cmp al,32"
 ;	AH, DI = undefined
+
 getkey:	clear ax
 	xchg al,ungotkey	; AL = ungotkey;  ungotkey = 0
 	test al
@@ -201,5 +205,4 @@ l9:	mov mxrecptr,di
 
 ; Error . . . Out of macro space.
 e1:	mov al,msgmxfull		; say "Macro buffer full."
-	jmp msg_error			
-
+	jmp msg_error
