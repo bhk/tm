@@ -166,7 +166,7 @@ do_insline:
 ;  -  If 'wnd_ptr' is not equal to the previously displayed wnd_ptr,
 ;     then the page is redisplayed.
 ; So all they need to to is modify BX, and then call top_up(), top_dn(),
-; or recenter() if BX moves off the screen.
+; or do_recenter() if BX moves off the screen.
 ;    Routines 'lft1', 'rgt1', and 'move1' automatically call top_up() and
 ; top_dn() to keep BX on the screen.
 
@@ -522,7 +522,7 @@ do_dispmode:
 	jmps place_point		; BX = cursor (on entry)
 
 ; Place wnd_ptr such that point is in the middle line of the screen.
-recenter:
+do_recenter:
 	mov bh,maxY
 	shr bh,1		; BH = maxY/2
 place_point:	; Place point at line #BH on screen
@@ -565,7 +565,7 @@ disp_page:
 	mov wnd_drawn,di
 	cmp di,point		; see if point >= wnd_ptr
 	jbe >l2			; go straight to test condition, if so
-r1:	call recenter		; This probably shouldn't happen
+r1:	call do_recenter	; This probably shouldn't happen
 	jmp disp_page
 l1:	call get_next_byte	; display until point is reached...
 	jc r1			; at end of text BEFORE point!
@@ -949,7 +949,7 @@ sa_ret:	ret
 
 
 scan_args:
-	mov si,081h		; first byte of arguments
+	mov si,ARGBUF		; first byte of arguments
 	lodsb
 	mov b[si-1],0
 	jmp >s1
@@ -961,7 +961,7 @@ s1:	call dispatch_al
 	dvect '-', sa_dash	; evaluate switch...
 	db 0
 	dec si
-	mov di,081		; Take arg as file name, put SI at end of arg
+	mov di,ARGBUF		; Take arg as file name, put SI at end of arg
 f0:	movsb
 	cmp b[si],32
 	jg f0
@@ -1021,47 +1021,57 @@ l1:	mov bl,[si]		; Get next digit
 	jmp l1
 
 
-;  Display message no. AL on status line, highlighted, then clear to eol.
-;  On exit:	AX, CX, SI undefined.
+; Display message number AL on status line, highlighted
+; On exit:	AX, CX, SI undefined.
+;
 disp_status_msg:
 	mov si,msg0 - 1
 	neg al
 	mov [si],al
 	;jmp disp_stat_hlt
 
+; Display status line in highlight color
+;
 disp_stat_hlt:
 	mov al,hltcolor
-; Same as disp_statline, but string is displayed in color AL.
+        ;jmp disp_stat_col
+
+; Display status line in color AL
+;
 disp_stat_col:
 	mov color,al
 	pushi use_defcolor	; return to here after disp_statline
-	; Fall through to disp_statline...
+	;jmp disp_statline
 
-; disp_statline:  Display string SI at start of status line, and clear to eol
-;  On exit:  AX, BX, CX undefined.
-;	     SI points to byte following terminating 0.
+; Display string SI at start of status line, and clear to eol
+; On exit:  AX, BX, CX undefined.
+;	SI points to byte following terminating 0.
+;
 disp_statline:
 	pushi clr_to_eol	; return to clr_to_eol after disp_str()
 	mov bl,0		;    (same as call disp_str; jmp clr_to_eol)
 	;jmp disp_str_statline
 
-; disp_str:  Display string at position indicated by BX
-; disp_str_statline:  Display string at column BL on the status line
-; On return:
-;	BH, BL = row, column after end of string
-;	CX = # of bytes to end of line after string
-;	SI points to byte after string (after terminating 0).
-;	AX trashed; other registers preserved.
-; >> To fix: don't exceed line length <<
+; Display string at column BL on the status line
+; On return: see disp_str
+;
 disp_str_statline:
 	mov clrstat,2		; clear this line after next keypress
 	mov bh,maxY
 	inc bh
+
+; Display string at position indicated by BX
+;	BH, BL = row, column after end of string
+;	CX = # of bytes to end of line after string
+;	SI points to byte after string (after terminating 0).
+;	AX trashed; other registers preserved.
+; TODO: don't exceed line length?
+;
 disp_str:
 	lodsb			; al = *SI++
 	test al
 	jz ret
-	js disp_lookup_str		; If high bit set, display substring.
+	js >l2		; If high bit set, display substring.
 	test bl
 	if z and al,95			; capitalize AL
 	call disp_char
@@ -1074,12 +1084,10 @@ l1:	lodsb				; be sure to get to end of string
 	jnz l1
 	ret
 
-; Lookup and display string (-AL), then continue displaying at SI
-disp_lookup_str:
-	push si			; Save current position.
-	; From index AL, lookup message address SI
+	; Lookup and display string (-AL), then continue displaying at SI
+l2:	push si			; Save current position.
 	neg al
-	js disp_filename	; neg(-128) == -128  (if so, use filename)
+	js >f0			; neg(-128) == -128  (if so, use filename)
 	mov si,msg0
 	cbw
 	xchg ax,cx	; CX = string index
@@ -1092,8 +1100,8 @@ d2:	call disp_str
 dlret:	pop si			; Restore position in enclosing string
 	jmp disp_str		; and continue.
 
-disp_filename:
-	mov si,081h
+        ; Display filename
+f0:	mov si,ARGBUF
 f1:	lodsb
 	test al
 	jz dlret
@@ -1150,12 +1158,13 @@ l2:	pop bx
 	ret
 
 
-menu1:	mov si,ESCmenu
-	;jmp do_menu
+do_menu1:
+	mov si,ESCmenu
+	;jmp show_menu
 
-; do_menu
 ; On entry:	SI points to menu
-do_menu:
+;
+show_menu:
 	call disp_statline		; inc SI past menu title
 l0:	mov bh,0			; first item = 1
 menu_next:
@@ -1239,7 +1248,7 @@ chk_exit:
 	test unsaved
 	jz exitOK
 	mov si,EXITmenu			; "Abort and lose changes?"
-	jmp do_menu
+	jmp show_menu
 
 exitOK:	call clr_statline
 	dec bh

@@ -22,7 +22,7 @@ STACKSIZE	equ 256
 MX_BUF_SIZE	equ 300	; 1 byte/keystroke, 2 bytes/macro, 2 bytes/nest level
 SRCH_SIZE	equ 32	; Warning: each character needs 6 bytes of stack...
 FNAME_SIZE	equ 07E ; maximum size of file name
-
+ARGBUF		equ 081h ; address of argument buffer; use to hold file name
 
 data segment
 	; These variables should overlap this once-used 3-byte jmp instruction.
@@ -249,12 +249,13 @@ msgundo		equ 43
 
 dosmsg3:	db 'TM: bad argument$'
 dosmsg4:	db 'TM: Not enough memory$'
+
 banner:	db 'TM 1.4'
 msg0:	db 0
 msgfilesaved_addr:
 	db -39,'d',-40,0		; 1 = 'Saved "<fnm>"'
 	db 'New',-31,-40,0		; 2 = 'New file: "<fnm>"'
-	db 'Type ^S when done...',0	; 3 (was 16)
+	db 'Type ^S when done...',0	; 3 = 'Type ^S when done...'
 	db 'Cut',-20,0			; 4 = 'Cut buffer full!'
 	db -21,'set.',0			; 5 = 'Mark set.'
 	db -21,-22,'set!',0		; 6 = 'Mark not set!'
@@ -263,40 +264,42 @@ msgfilesaved_addr:
 	db -25,-41,-23,'...',0		; 9 = 'Recording macro...'
 	db -23,' ',-25,-18,0		; 10 = 'Macro recorded.'
 	db -23,' loop!',0		; 11 = 'Macro loop!'
-		;  Search messages, 12...17 (numbering is significant)
+
+	;;  Search messages, 12...17 (numbering is significant)
 	db 'R-', -14, 0			; 12 = 'R-Search:'
 	db -19, ' :', 0			; 13 = 'Full! :'
-	db 'Search:',0			; 14
+	db 'Search:',0			; 14 = 'Search:'
 	db -38,'? (Y,N,A,Q) :',0	; 15 = 'Replace? (Y,N,A,Q) :'
-	db -33,-20,0			; 16 (was 3) = 'File buffer full!'
+	db -33,-20,0			; 16 = 'File buffer full!'
 	db -22,'found:',0		; 17 = 'Not found:'
-	db 'ed.', 0			; 18 (î)  Keep?
-	db 'full!', 0			; 19
+
+	db 'ed.', 0			; 18 = 'ed.'
+	db 'full!', 0			; 19 = 'full!'
 	db ' buffer ', -19, 0		; 20 = ' buffer full!'
-	db 'mark ', 0			; 21
-	db 'not ',0			; 22
-	db 'macro', 0			; 23
-	db 'Quit', 0			; 24 (è)
-	db 'record', 0			; 25
+	db 'mark ', 0			; 21 = 'mark '
+	db 'not ',0			; 22 = 'not '
+	db 'macro', 0			; 23 = 'macro'
+	db 'Quit', 0			; 24 = 'Quit'  (è)
+	db 'record', 0			; 25 = 'record'
 	db -35,-31,0			; 26 = 'Load file:'
 	db -39,-31,0			; 27 = 'Save file:'
 	db -35,' ',-32,'!',0		; 28 = 'Load error!'
 	db -33,' too big!',0		; 29 = 'File too big!'
-	db -32,' ',-34,-41,-33,'!',0	; 30 = 'Error saving file!'
+	db -32,' ',-34,-41,-33,'!',0	; 30 = 'error saving file!'
 	db ' ',-33,':',0		; 31 = ' file:'
-	db 'error',0			; 32
-	db 'file',0			; 33
-	db 'sav',0			; 34 (Þ)
-	db 'Load',0			; 35 (Ý)
-	db -35,'ed',-40,0		; 36 = 'Loaded "<fnm>"'
-	db ' changes',0			; 37 = ' changes'  (Û)
-	db 'Replace',0			; 38 = 'Replace'   (Ú)
-	db 'Save',0			; 39 (Ù)
-	db ' "',-128,'"',0		; 40 = '"<fname>"' (Ø)
-	db 'ing ',0			; 41
-	db 'no more ',-44,'!',0		; 42
-	db -44,-41,'...',0		; 43
-	db 'undo',0			; 44
+	db 'error',0			; 32 = 'error'
+	db 'file',0			; 33 = 'file'
+	db 'sav',0			; 34 = 'sav'   (Þ)
+	db 'Load',0			; 35 = 'Load'  (Ý)
+	db -35,'ed',-40,0		; 36 = 'Loaded "FILE"'
+	db ' changes',0			; 37 = ' changes' (Û)
+	db 'Replace',0			; 38 = 'Replace'  (Ú)
+	db 'Save',0			; 39 = 'Save'     (Ù)
+	db ' "',-128,'"',0		; 40 = '"FILE"'   (Ø)
+	db 'ing ',0			; 41 = 'ing '
+	db 'no more ',-44,'!',0		; 42 = 'no more undo!'
+	db -44,-41,'...',0		; 43 = 'undoing ...'
+	db 'undo',0			; 44 = 'undo'
 
 menudef ESC, 'Option:', 4, save_file, -39, save_as, 'Þe As', find_file, -35, chk_exit, -24
 	bind_b 1, 'S',19		; 'S' and ctrl-S execute "Save"
@@ -346,11 +349,11 @@ fn_bindings:
 	bind go_rgt_word, -116, -33	; ctrl-Right, Alt-F
 	bind go_scrlup, 26		; ctrl-Z
 	bind go_scrldn, -44		; alt-Z
-	bind recenter, 12		; ctrl-L
+	bind do_recenter, 12		; ctrl-L
 	bind do_delete, 4, -83		; ctrl-D, Delete
 	bind do_kill, 11, -117		; ctrl-K, ctrl-End
 	bind do_ctrlq, 17		; ctrl-Q
-	bind menu1, 24, 27		; ctrl-X, ESC
+	bind do_menu1, 24, 27		; ctrl-X, ESC
 	bind do_yank, 25		; ctrl-Y
 	bind do_cutappend, -30		; Alt-A
 	bind do_setmark, -3		; Ctrl-@, Alt-= (-131 -> -3)

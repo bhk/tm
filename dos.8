@@ -7,7 +7,7 @@ find_file:
 	and al,b[di]		; AL = filename && unsaved
 	jz load_named		; If no name, or no unsaved changes, load file
 	mov si,LOADmenu		; Else ask "Lose changes?"
-	jmp do_menu
+	jmp show_menu
 
 save_and_find:
 	call save_file
@@ -29,11 +29,11 @@ load_named:
 ; load_file should always return whence it was called; it can't jump to
 ; jmp_error.
 ; On entry:
-;    [081...] holds file name (zero-terminated)
+;    ARGBUF[...] holds file name (zero-terminated)
 ; On return:
 ;    All registers undefined.
 load_file:
-	call filetest		; DX = 081, DI = &unsaved, Z = (b[081] == 0)
+	call filetest		; DX = ARGBUF, DI = &unsaved, Z = (b[DX] == 0)
 	;mov b[di],0		; for "mov unsaved,0"
 	mov text_btm,text_top	; Leave buffer in a known state
 	jz ret			; Return if no filename
@@ -51,7 +51,7 @@ load_file:
 	call dosint		; DOS call (goto load_error if error)
 	cmp ax,cx		; if it read one too many...
 	jne >l2			;   file is too big
-	mov b[si],0		; (SI=081h)
+	mov b[si],0		; (SI=ARGBUF)
 	mov al,msgfilebig
 	jmps l_disp_status_msg
 l2:	add ax,dx		; AX = no. of bytes + text_top
@@ -125,7 +125,7 @@ save_as:
 ;	2. Output CR/LF and advance past the LF.
 ;	3. goto 1
 save_file:
-	call filetest		; mov dx,081; mov di,&unsaved; test b[081]
+	call filetest
 	jz save_as
 	call catch_error
 	jc save_failure
@@ -194,7 +194,7 @@ remove_CRs:
 	;ret
 
 edit_name:
-	mov bp,081
+	mov bp,ARGBUF
 	mov si,bp
 	mov di,fname_buf
 	push si
@@ -231,7 +231,7 @@ en_lit:	mov [si],al			; Add literal character to file name
 en_esc:	pop ax				; return two levels...
 	dec clrstat			; clrstat=1 => clear before next getkey
 	mov si,fname_buf		; SI = fname_buf
-	mov di,bp			; DI = 081
+	mov di,bp			; DI = ARGBUF
 en_movefname:
 	mov cx,FNAME_SIZE / 2
 	rep movsw
@@ -242,10 +242,10 @@ en_bak:	dec si
 	jb edit_start
 	jmp edit_restart
 
-; Initialize registers and test b[081]
+; Initialize registers and test b[ARGBUF]
 filetest:
 	mov di,offset unsaved
-	mov si,081h
+	mov si,ARGBUF
 	mov dx,si
 	mov al,b[si]
 	test al		; test filename

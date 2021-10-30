@@ -10,6 +10,8 @@ jmps MACRO jmp short #1 #EM
 
 	jmp start
 
+ARGBUF		equ 081h
+
 filename	dw
 text_limit	dw ?		; End of buffer space
 text_btm	dw ?		; End of file in buffer
@@ -102,7 +104,7 @@ l1:	dec di
 
 
 load_file:
-	mov si,081
+	mov si,ARGBUF
 	mov di,filename
 	mov al,'s'
 	stosb			; Initial 's' for filename to write
@@ -112,7 +114,7 @@ l0:	lodsb			; Look for start of filename
 	jz exit_to_dos
 	cmp al,32
 	je l0
-l1:	stosb			; Move filename to 081
+l1:	stosb			; Move filename to ARGBUF
 	lodsb
 	cmp al,32
 	ja l1
@@ -131,7 +133,7 @@ l1:	stosb			; Move filename to 081
 	call dosint		; DOS call (goto load_error if error)
 	cmp ax,cx		; if it read one too many...
 	jne >l2			;   file is too big
-	mov b[si],0		; (SI=081h)
+	mov b[si],0		; (SI=ARGBUF)
 	mov dx,dmsg_toobig
 	jmp disp_dosmsg
 l2:	add ax,dx		; AX = no. of bytes + text_top
@@ -187,5 +189,3 @@ exit_to_dos:
 
 
 text_top	equ $
-
-
