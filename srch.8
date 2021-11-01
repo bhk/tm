@@ -276,7 +276,7 @@ rplc_query:
 rplc_delete:
 	mov di, point
 	push di
-l1:	call lft1		; a Carry return cond should be impossible...
+l1:	call go_lft		; a Carry return cond should be impossible...
 	dec si
 	jnz l1
 	pop si

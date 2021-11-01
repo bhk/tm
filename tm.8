@@ -165,16 +165,16 @@ do_twiddle:
 	jz ret
 	push ax
 	call do_backspace
-	call rgt1
+	call go_rgt
 	pop ax
 	jmp literal
 
 
-;;; Insert a line below the point
+;;; Insert a newline at the point, without advancing.
 ;;;
 do_insline:
 	call do_enter
-	mov al, 2		; lft1
+	mov al, 2		; Ctrl-B (go left)
 	jmp lookup_do
 
 
@@ -194,7 +194,7 @@ go_home:
 go_end:
 e1:	cmp [di], dl		; DL = newline
 	je ret
-	call rgt1
+	call go_rgt
 	jnc e1
 	ret
 
@@ -228,7 +228,7 @@ go_pgdn:
 ;;; Go right one word:  skip_nonwhite + skip_white
 ;;;
 go_rgt_word:
-	mov dx, rgt1		; this determines direction for skip_...
+	mov dx, go_rgt		; this determines direction for skip_...
 	call skip_nonwhite
 	;; jmp skip_white
 
@@ -236,10 +236,10 @@ go_rgt_word:
 ;;; While character at point is whitespace, call DX to move point.
 ;;;
 skip_white:
-	call chk_white		; see if on whitespace
+	call is_at_white		; see if on whitespace
 	jnz ret			; if not, return
 skip_white2:			; call "skip_white2" for action before test
-	call dx			; call rgt1 or lft1
+	call dx			; call go_lft/rgt
 	jnc skip_white		; if successful, repeat
 	ret
 
@@ -248,9 +248,9 @@ skip_white2:			; call "skip_white2" for action before test
 ;;; On exit:  C set if at end of text
 ;;;
 skip_nonwhite:
-	call chk_white
+	call is_at_white
 	jz ret			; If on whitespace, return
-	call dx			; call lft1 or rgt1
+	call dx			; call go_lft/rgt
 	jnc skip_nonwhite	; if successful, repeat
 	ret
 
@@ -258,7 +258,7 @@ skip_nonwhite:
 ;;; Go left one word: skip_white + skip_nonwhite
 ;;;
 go_lft_word:
-	mov dx, lft1		; this determines direction for skip_...
+	mov dx, go_lft		; this determines direction for skip_...
 	call skip_white2	; call it with action before test
 	call skip_nonwhite
 	jc ret
@@ -271,13 +271,19 @@ go_lft_word:
 ;;; On exit: C set => at end of text (DI undefined)
 ;;;	     C clear => not at end; DI = point
 ;;;
-go_rgt:
-rgt1:	mov di, point
+;;; Maintains handler state.
+;;;
+go_rgt:	mov di, point
 	call get_next_byte
 	jc ret			; if at end of text, can't go right
 	call mov_point_di
-	call advance_cursor
-	jmps store_target	; store_target RETurns
+	mov bx, cursor
+	call advance_bx
+	mov cursor, bx
+	call chk_advance
+g1:	mov targetX, bl
+	clc
+	ret
 
 
 ;;; Move point let by on character and move the cursor with it.
@@ -286,15 +292,16 @@ rgt1:	mov di, point
 ;;; On exit: C set => at end of text (DI undefined)
 ;;;	     C clear => not at end; DI = point
 ;;;
-go_lft:
-lft1:	call dec_ptr		; move pointer to previous byte in text
+;;; On entry:  DX unused.
+;;;
+go_lft:	call dec_ptr		; move pointer to previous byte in text
 	jc ret			; if already at top of text, we're done now
 	call mov_point_di	; save updated pointer as point
-	call retreat_cursor
-store_target:
-	mov targetX, bl
-	clc
-	ret
+	mov bx, cursor
+	call retreat_bx
+	mov cursor, bx
+	call chk_retreat
+	jmp g1
 
 
 ;;; Insert character at point and update display
@@ -345,7 +352,7 @@ l3:	call disp_literal
 ;;; Backspace and delete character
 ;;;
 do_backspace:
-	call lft1
+	call go_lft
 	mov deleted, 0FFh
 	jnc do_delete
 	ret
@@ -355,15 +362,17 @@ do_backspace:
 do_kill:
 	;; Find first DL, starting at DI
 	;; while ([DI] != DL && DI <= textbufend) ++DI;
-f1:	call get_next_byte
-	jc >f9
+k1:	call get_next_byte
+	jc >k9
 	cmp al, dl
-	jne f1
-f9:	dec di
+	jne k1
+k9:	dec di
 	;; jmp do_delete
 
 
 ;;; Delete the character at point.
+;;;
+;;; TODO: why not rely on DI?
 ;;;
 do_delete:			; delete point...DI, or point..point+1
 	mov si, point
@@ -613,7 +622,7 @@ calc_address:
 disp_to_eol:
 	call get_next_byte
 	jc >l1			; display EOT_CHAR if end-of-text
-	call cmp_al_newline	; cmp al, newline
+	call is_newline		; cmp al, newline
 	jne >s1			; if CR, return with C not set
 	dec di
 	ret
@@ -649,8 +658,8 @@ disp_eol:
 	push cx
 	call clr_to_eol
 	pop cx
-	call bx_to_nextline
-	ret			; return with C not set if BH on screen
+	call bx_to_nextline	; return with C not set if BH on screen
+	ret
 
 ;;; Display character.  If at EOL, pop 2 words and then return.  On
 ;;; exit, C set => past end of screen.
@@ -676,7 +685,7 @@ d9:	pop ax, ax		; return address; value pushed in disp_byte
 disp_byte:
 	test al, not 31
 	jnz >l1			; go if not a control character
-	call cmp_al_newline
+	call is_newline
 	jz disp_eol
 	jmpon TABCHAR, disp_tab
 	;; Display control character
@@ -735,21 +744,13 @@ l2:	push cx
 
 ; Move cursor down one line
 go_dn:	call dn1
-	jnc chk_advance         ; if cursorH>maxX, call 'top_dn()'
-	ret                     ; EOT before end of line; BX invalid
+	jc ret
+	;; jmp chk_advance	; if cursorH>maxX, call 'top_dn()'
 
-
-;;; Advance cursor and keep cursor on screen by calling 'top_dn' if necessary.
-;;; On entry: AL = character to "advance" over
-;;; On exit:  BX = new cursor value; All other regs unchanged.
-advance_cursor:
-	mov bx, cursor
-	call advance_bx
-	mov cursor, bx
-	;; jmp chk_advance
 
 ;;; Scroll down if necessary to expose cursor.
 ;;; On entry: BX = cursor
+;;; Destroys AL.  Maintains BX=cursor.  Other registers uncahnged.
 ;;;
 chk_advance:
 	cmp bh, maxY
@@ -757,8 +758,8 @@ chk_advance:
 	dec bh
 	mov cursor, bx
 	;; jmp top_dn			; call top_dn() and return
-; top_dn: moves start of window down one line
-;   Saves BX, DI, SI
+
+;;; Move start of window down one line
 top_dn:	push bx, di, si
 	mov di, wnd_ptr			; where window starts
 	clear bx
@@ -782,6 +783,9 @@ r1:	pop si, di, bx
 ;;; On entry:
 ;;;	BX = cursor position
 ;;;	AL = character we are advancing over
+;;; On exit:
+;;;	BX = new cursor position
+;;;	Other registers unchanged.
 ;;;
 advance_bx:
 	test al, not 31		; see if <= 31
@@ -813,14 +817,6 @@ l1:	push ax			; save AH
 	pop ax			; restore AH
 	jmp chk_bx
 
-
-
-;;; Retreat cursor and keep cursor on screen by calling 'top_up' if necessary.
-retreat_cursor:
-	mov bx, cursor
-	call retreat_bx
-	mov cursor, bx
-	;; jmp chk_retreat
 
 ;;; Scroll up to expose cursor if necessary.
 ;;; On entry: BX = cursor pos
@@ -974,7 +970,7 @@ f0:	movsb
 	jmp sa_skipspace
 sa_dash:
 	lodsb			; get switch letter
-	call cmp_al_white
+	call is_white
 	jz sa_err
 	xchg cx, ax		; for "mov cl, al";   CL = switch letter
 	call get_num		; get number -> AL
@@ -1306,14 +1302,19 @@ get_hd_val:
 	if ae add al, 'A'-'9'-1
 	ret
 
-chk_white:			; returns Z if [DI] is whitespace char
-	;mov di, point
+;;; Set Z if [DI] is a whitespace character
+;;;
+is_at_white:
 	mov al, [di]
-cmp_al_white:			; returns Z if AL is a whitespace char
+	;; jmp is_white
+
+;;; Set Z if AL is a whitespace character
+;;;
+is_white:			; returns Z if AL is a whitespace char
 	jmpon 32, ret
 	jmpon 13, ret
 	jmpon TABCHAR, ret
-cmp_al_newline:
+is_newline:
 	cmp al, newline
 	ret
 

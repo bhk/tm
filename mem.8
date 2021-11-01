@@ -7,7 +7,6 @@
 ;;;
 get_next_byte:
 	mov al, ds:[di]
-inc_ptr:
 	inc di
 	cmp textbufend, di
 	ret
