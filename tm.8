@@ -658,8 +658,7 @@ disp_eol:
 	push cx
 	call clr_to_eol
 	pop cx
-	call bx_to_nextline	; return with C not set if BH on screen
-	ret
+	jmp bx_to_nextline	; return with C not set if BH on screen
 
 ;;; Display character.  If at EOL, pop 2 words and then return.  On
 ;;; exit, C set => past end of screen.
