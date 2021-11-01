@@ -1,153 +1,167 @@
-;
-; TM
-; Copyright Brian Kelley, 1992, 1995
-;
+;;; tm.8
 
-start:	;cld			; "cld" is assumed throughout
-	mov ax,sp
-;;	sub ax,STACKSIZE	; leave this much room for stack data
-	dec ah			; STACKSIZE = 256
-	mov di,dyn_buffers
-	stosw	;mov mxmax,ax	; extent of macro buffer
-	sub ax,MX_BUF_SIZE
-	stosw	;mov mxbtm,ax	; end of defined macros
-	stosw	;mov mxbuf,ax	; start of macro buffer ( = srch_max)
-	sub ax,SRCH_SIZE
-	stosw	;mov srchstr,ax	; start of search buffer
-	sub ax,FNAME_SIZE	; file name (overlaps slop; see "uses slop")
-	stosw	;mov text_limit,ax	; end of text buffer
+;;; `cld` is assumed throughout the program.
+
+start:	mov ax, sp		; SP starts at the end of our 64KB(?) segment ;
+	dec ah			; reserve 256 bytes for call stack
+	mov di, dyn_buffers
+	stosw			; set mxbufmax
+	sub ax, MXBUF_SIZE
+	stosw			; set mxdefsmax
+	stosw			; set mxbuf
+	sub ax, SRCHBUF_SIZE
+	stosw			; set srchbuf
+	sub ax, FNAME_SIZE	; file name (overlaps slop; see "uses slop")
+	stosw			; set textbufmax
 	call init_bufs		; allocate space for cut buffer and undo buffer
 	call check_disp_mode	; set scrwid, scrhgt, and screen_seg
 	call scan_args		; read args & set appropriate variables
 	call set_dimensions	; fix xoff, yoff, maxX, & maxY, etc.
 	call use_defcolor	; set color to default color
-	mov al,invcolor
-	mov si,banner
+	mov al, invcolor
+	mov si, banner
 	call disp_stat_col
 
 reset_load:
 	call load_file		; load file if name is set
 
-; Initialize all variables dealing with displaying the text
-; Also reset macro record/playback state.
+;;; Initialize all variables dealing with displaying the text, and
+;;; reset macro record/playback state.
+;;;
 disp_init:
-	mov al,newline
-	mov initial_newline,al	;  [text_top - 1] exposed an assembler bug!
+	mov al, newline
+	mov initial_newline, al	;  [textbuf - 1] exposed an assembler bug!
 	call undo_init
 	call force_redraw	; loads wnd_drawn with 0
-	mov unsaved,al		; undo_init sets unsaved to 0FFh
+	mov unsaved, al		; undo_init sets unsaved to 0FFh
 	call go_top		; Set point & wnd_ptr; draw screen; set cursor
 	call catch_error	; Top-level catch-error is here...
 	call mx_halt
-	mov srchmode,al		; srchmode = 0
+	mov srchmode, al	; srchmode = 0
 mainloop:
-	pushi mainloop
+	pushi mainloop		; = "call main_do; jmp mainloop"
 main_do:
-	shr deleted,1		; Clear 'deleted' unless last function deleted
+	shr deleted, 1		; Clear 'deleted' unless last function deleted
 	call chk_clr_stat	; See if time to clear status line
-	call chk_drawn		; cmp wnd_ptr,wnd_drawn
+	call chk_drawn		; cmp wnd_ptr, wnd_drawn
 	if nz call disp_page
-	call set_the_cursor
-	;jmp get_and_do		; call get_and_do, then return to mainloop
+	call set_text_cursor
+	;; jmp get_and_do	; call get_and_do, then return to mainloop
 
-; Look up a "do_" or "go_" function and execute it.
+;;; Look up a "do_" or "go_" function and execute it.
+;;;
 get_and_do:
 	call dispatch_key	; Get key in AL, compare to 32
 	db 0
 	jge literal		; If a printable character, insert it
 lookup_do:
-	mov di,fn_bindings	; look for key in bindings[]
+	mov di, fn_bindings	; look for key in bindings[]
 	call get_assoc
 	push [di]
-ret_do:
-	mov di,point		; "do_" functions expect: DI = point
-	mov bx,cursor		;	BX = cursor
-	mov dl,newline		;	DL = newline
-	mov dh,maxY
-	mov si,offset text_mark
+ret_do:	;; "Handler state" implies the following register values:
+	mov di, point
+	mov bx, cursor
+	mov dl, newline
+	mov dh, maxY
+	mov si, offset text_mark
 	ret
 
 
-;;
-;;  "go_"  and  "do_" functions (functions bound to keystrokes)
-;;
-;; "do_" and "go_" functions can expect the following, on entry:
-;;	SI = address of text_mark
-;;	DI = point
-;;	BX = cursor
-;;	DL = newline
-;;	DH = maxY
-;;	AL = character typed
+;;; Handler functions (bound to keys) are named "go_..." and "do_...".
+;;; When called from mainloop, they do not need to preserve registers,
+;;; and on entry:
+;;;
+;;;	AL = character typed
+;;;	Other registers defined in "handler state" (above)
+;;;
+;;; On return to the mainloop:
+;;;   - The BIOS cursor is set to `cursor` after every routine returns.
+;;;   - If wnd_ptr is not equal to the previously displayed wnd_ptr,
+;;;     then the page will be redisplayed.
+;;;
+;;; So all they need to to is modify BX, and then call top_up(), top_dn(),
+;;; or do_recenter() if BX moves off the screen.
 
-; Remove all CR's from the text.
+
+;;; Remove all CR's from the text.
+;;;
 do_stripCRs:
 	call remove_CRs
-	; Restart at disp_init (reload SP & jump)
-	;;call catch_reset		; Reset SP to before catch_error
+	;; Restart at disp_init (reload SP & jump)
+	;;call catch_reset	; Reset SP to before catch_error
 	;;jmp disp_init
-	; Alternative code:
-	mov ax,disp_init
-	; Set SP to as it was before catch, then jump to AX.
+	;; Alternative code:
+	mov ax, disp_init
+	;; Set SP to as it was before catch, then jump to AX.
 before_catch:
-	mov sp,err_sp
+	mov sp, error_sp
 	pop bx			; for "add sp,2": skip continuation address
-	pop bx			; for "add sp,2": skip old err_sp
+	pop bx			; for "add sp,2": skip old error_sp
 	jmp ax
 
-do_enter:
-	xchg ax,dx		; for "mov al,dl"  ; DL = newline
-literal:
-	pushi do_literal	; (pushi + jmp) is smaller than (call + ret)
-	jmp ret_do              ; ...but only when jmp is short
 
+;;; Maintains handler state
+do_enter:
+	xchg ax, dx		; for "mov al, dl"  ; DL = newline
+literal:
+	pushi do_literal	; (pushi B; jmps A) is smaller than (call A; jmpl B)
+	jmp ret_do
+
+
+;;; Maintains handler state
 do_ctrlq:
 	call getkey		; get next key typed
 	jmps literal
 
+
+;;; Maintains handler state
 do_cutappend:
-	mov deleted,2
+	mov deleted, 2
 	ret
 
 
 do_setmark:
-	mov [si],di		; DI = point;  SI = &text_mark
-	mov al,msgmarkset
+	mov [si], di		; DI = point;  SI = &text_mark
+	mov al, msgmarkset
 	jmps disp_status_msg_1
 
 do_xchgmark:
 	call mark_check		; SI = &text_mark;  now AX = mark
-	mov point,ax
-	mov [si],di		; DI = point
+	mov point, ax
+	mov [si], di		; DI = point
 	jmp chk_point
 
 do_deltomark:
 	call mark_check		; SI = & text_mark;  now AX = mark
-	cmp di,ax		; DI = point
-	if a xchg di,ax
-	mov [si],di		; SI = & text_mark
+	cmp di, ax		; DI = point
+	if a xchg di, ax
+	mov [si], di		; SI = & text_mark
 	call mov_point_di
-	xchg ax,si		; for "mov si,ax"
+	xchg ax, si		; for "mov si, ax"
 delete_region_redisp:
 	call delete_di_to_si
 	jmp disp_page
 
-; Set AX = [si], or text_btm, whichever is lower.  Also, abort if mark==0.
+;;; Set AX = [si], or textbufend, whichever is lower.  Abort if mark==0.
+;;;
 mark_check:
-	mov ax,text_btm
-	cmp ax,[si]
+	mov ax, textbufend
+	cmp ax, [si]
 	jb >c1
-	mov ax,[si]
+	mov ax, [si]
 c1:	test ax
 	jnz ret
 	pop ax
-	mov al,msgmarknot		; say "Mark not set."
+	mov al, msgmarknot	; say "Mark not set."
 disp_status_msg_1:
 	jmp disp_status_msg
 
-; Switch [point-1] with [point]
+
+;;; Switch [point-1] with [point]
+;;;
 do_twiddle:
-	mov al,[di-1]
-	cmp al,dl
+	mov al, [di-1]
+	cmp al, dl
 	jz ret
 	push ax
 	call do_backspace
@@ -155,71 +169,72 @@ do_twiddle:
 	pop ax
 	jmp literal
 
-; Ctrl-O : Insert line below point
+
+;;; Insert a line below the point
+;;;
 do_insline:
 	call do_enter
-	mov al,2		; lft1
+	mov al, 2		; lft1
 	jmp lookup_do
 
-; Cursor movement routines can rely on the following:
-;  -  'mainloop' sets the display cursor after every routine returns.
-;  -  If 'wnd_ptr' is not equal to the previously displayed wnd_ptr,
-;     then the page is redisplayed.
-; So all they need to to is modify BX, and then call top_up(), top_dn(),
-; or do_recenter() if BX moves off the screen.
-;    Routines 'lft1', 'rgt1', and 'move1' automatically call top_up() and
-; top_dn() to keep BX on the screen.
 
-
+;;; Go to the start of the line
+;;;
 go_home:
-	mov si,di		; DI = point,  DL = newline
+	mov si, di		; DI = point, DL = newline
 	call find_sol
-	mov point,si
-	mov al,0
-	mov targetX,al
+	mov point, si
+	mov al, 0
+	mov targetX, al
 	jmp chk_and_place	; Now: make sure it's on screen, set cursor
 
 
+;;; Go to the end of the line
+;;;
 go_end:
-e1:	cmp [di],dl		; DL = newline
+e1:	cmp [di], dl		; DL = newline
 	je ret
 	call rgt1
 	jnc e1
 	ret
 
 
-; Go up maxY-1 lines
 u1:	call up1		; DI = point
 	jc ret
 	call top_up
-go_pgup:			; start at test.  On entry, DH = maxY
+
+
+;;; Go up DH-1 (maxY-1) lines
+;;;
+go_pgup:
 	dec dh
 	jnz u1
 	ret
 
-; Go down maxY-1 lines
+
 d1:	call dn1
 	jc ret
 	call top_dn
-go_pgdn:			; start at test.  On entry, DH = maxY
+
+
+;;; Go down DH-1 (maxY-1) lines
+;;;
+go_pgdn:
 	dec dh
 	jnz d1
 	ret
 
 
+;;; Go right one word:  skip_nonwhite + skip_white
 ;;;
-;;;  Go left word & go right word code.
-;;;
-
-; go_rgt_word:
-;   loop until is_white do rgt1 repeat
-;   loop while is_white do rgt1 repeat
 go_rgt_word:
-	mov dx,rgt1		; this determines direction for skip_...
+	mov dx, rgt1		; this determines direction for skip_...
 	call skip_nonwhite
-	;jmp skip_white			; fall through
+	;; jmp skip_white
 
-; While character at point is whitespace, "move" point.
+
+;;; While character at point is whitespace, call DX to move point.
+;;;
 skip_white:
 	call chk_white		; see if on whitespace
 	jnz ret			; if not, return
@@ -229,8 +244,9 @@ skip_white2:			; call "skip_white2" for action before test
 	ret
 
 
-; While character at point is whitespace, "move" point.
-; On return:  C set if at end of text
+;;; While character at point is NOT whitespace, call DX to move point.
+;;; On exit:  C set if at end of text
+;;;
 skip_nonwhite:
 	call chk_white
 	jz ret			; If on whitespace, return
@@ -238,313 +254,292 @@ skip_nonwhite:
 	jnc skip_nonwhite	; if successful, repeat
 	ret
 
-; go_lft_word:
-;   loop do lft1 while is_white repeat
-;   loop until is_white do lft1 repeat
-;   rgt1
+
+;;; Go left one word: skip_white + skip_nonwhite
+;;;
 go_lft_word:
-	mov dx,lft1		; this determines direction for skip_...
-	call skip_white2		; call it with action before test
+	mov dx, lft1		; this determines direction for skip_...
+	call skip_white2	; call it with action before test
 	call skip_nonwhite
 	jc ret
-	;jmp go_rgt
-; rgt1, lft1
-;    Move point in text by one character, advancing 'cursor' along with it.
-; If cursor moves off the screen, 'top_dn' or 'top_up' are called to move
-; the cursor back onto the screen.
-;    Does not set_cursor() or display any text.
-; On exit:  Carry set if at end of text (DI undefined)
-;	    NoCarry, and DI=point, otherwise.
-;	   AX, BX undefined.
+	;; jmp go_rgt
+
+
+;;; Move point right by on character and move the cursor with it.
+;;; If the point moves off the screen, call top_dn to expose it.
+;;;
+;;; On exit: C set => at end of text (DI undefined)
+;;;	     C clear => not at end; DI = point
+;;;
 go_rgt:
-rgt1:	mov di,point
+rgt1:	mov di, point
 	call get_next_byte
-	jc ret				; if at end of text, can't go right
+	jc ret			; if at end of text, can't go right
 	call mov_point_di
-	call advance_cursor		; inc bx, or go to next line if al=EOL
-	jmps store_target		; store_target RETurns
+	call advance_cursor
+	jmps store_target	; store_target RETurns
 
 
-; On exit: Carry set if at start of text (DI undefined)
-;	   NoCarry, and DI=point, otherwise.
+;;; Move point let by on character and move the cursor with it.
+;;; If the point moves off the screen, call top_up to expose it.
+;;;
+;;; On exit: C set => at end of text (DI undefined)
+;;;	     C clear => not at end; DI = point
+;;;
 go_lft:
-lft1:	;mov di,point		; First, modify text area
-	call dec_ptr		 ; move pointer to previous byte in text
-	jc ret			 ; if already at top of text, we're done now
-	call mov_point_di	 ; save updated pointer as point
-	call retreat_cursor	; Second, update cursor position
+lft1:	call dec_ptr		; move pointer to previous byte in text
+	jc ret			; if already at top of text, we're done now
+	call mov_point_di	; save updated pointer as point
+	call retreat_cursor
 store_target:
-	mov targetX,bl
+	mov targetX, bl
 	clc
 	ret
 
 
-;
-; do_literal:  Insert character before point and update display
-;    On entry:  AL = character
-;		BX = cursor
-;		DI = point
-do_tab:		; same as "do_literal", for now.
+;;; Insert character at point and update display
+;;;
 do_literal:
-	   ; insert character into text
-	call ins_at_point		; insert AL into text at [point++]
-	   ; update display
-	;mov cx,wnd_ptr			; May be needed for when literal()
-	;cmp cx,wnd_drawn		;  is called without a valid updated
-	;jz ret				;  display.
-	mov dx,bx			; DX = BX = original cursor pos
-	call disp_byte			; display AL, incrementing cursor
-	if c jmp top_dn			; cursor off screen, move TOP down
+	call ins_at_point	; insert AL into text at [point++]
+	mov dx, bx		; DX = BX = original cursor pos
+	call disp_byte		; display AL, incrementing cursor
+	if c jmp top_dn		; cursor off screen, move TOP down
 update_diff_cursor:
-	mov cursor,bx
-	;jmp update_diff
+	mov cursor, bx
+	;; jmp update_diff
 
-; Display characters from point up to where screen doesn't need to be changed.
-; Also, record current column # under targetX.
-;   On entry:	DX = old cursor position at point before deletion/insertion
-;		BX = current cursor position
+
+;;; Display characters from point up to where then screen contents
+;;; are unchanged, and reset targetX to current column.
+;;;
+;;; On entry:
+;;;	DX = old cursor position at point before deletion/insertion
+;;;	BX = current cursor position
+;;;
 update_diff:
-	mov targetX,bl			; set target column for up- & down-line
-	mov di,point
+	mov targetX, bl		; set target column for up- & down-line
+	mov di, point
 	 ; Display bytes until cursor pos. matches what it would have been
 	 ; before the insertion/deletion (not used for deletion yet).
-l1:	cmp bx,dx			; If current cursor pos != previous
-	jz ret				;   then we're done updating screen.
-	xchg bx,dx
-	mov al,[di]			; Get what cursor pos would correspond
-	call advance_bx			;  to this text pos. BEFORE insertion
-	xchg bx,dx
+l1:	cmp bx, dx		; If current cursor pos != previous
+	jz ret			;   then we're done updating screen.
+	xchg bx, dx
+	mov al, [di]		; Get what cursor pos would correspond
+	call advance_bx		;  to this text pos. BEFORE insertion
+	xchg bx, dx
 	call get_next_byte
 	jc >l2
-	call disp_byte			; display byte & get new cursor pos
-	jnc l1				; loop while we're not off-screen
+	call disp_byte		; display byte & get new cursor pos
+	jnc l1			; loop while we're not off-screen
 	ret
-l2:	mov al,EOT_CHAR			; At end of text
+l2:	mov al, EOT_CHAR	; At end of text
 l3:	call disp_literal
 	jc ret
-	; If we are deleting characters, display spaces until BX > DX
-	mov al,' '
-	cmp bx,dx
+	;; If we are deleting characters, display spaces until BX > DX
+	mov al, ' '
+	cmp bx, dx
 	jbe l3
 	ret
 
 
-; do_backspace - backspace and delete character
+;;; Backspace and delete character
+;;;
 do_backspace:
 	call lft1
-	mov deleted,0FFh
+	mov deleted, 0FFh
 	jnc do_delete
 	ret
 
-; do_kill :  Delete to end of line.
+;;;  Delete to end of line.
+;;;
 do_kill:
-	; Find first DL, starting at DI
-	; while ([DI] != DL && DI <= text_btm) ++DI;
-f1:
-	call get_next_byte
+	;; Find first DL, starting at DI
+	;; while ([DI] != DL && DI <= textbufend) ++DI;
+f1:	call get_next_byte
 	jc >f9
-	cmp al,dl
+	cmp al, dl
 	jne f1
 f9:	dec di
-	;jmp do_delete
+	;; jmp do_delete
 
-; do_delete - delete character at point and update screen
+
+;;; Delete the character at point.
+;;;
 do_delete:			; delete point...DI, or point..point+1
-	mov si,point
-	cmp si,text_btm
+	mov si, point
+	cmp si, textbufend
 	je ret
-	cmp di,si
+	cmp di, si
 	if e inc di		; if DI == point, inc DI (delete one char)
-	mov dx,bx		; DX = BX = cursor position
+	mov dx, bx		; DX = BX = cursor position
 	push si
 	call advance_to_di	; Advance from SI to DI, updating BX
 	pop di			; DI = start of region, SI now is at end
-	xchg dx,bx		; DX = cursor pos. at end of line
+	xchg dx, bx		; DX = cursor pos. at end of line
 	call delete_di_to_si
-	;jmps update_del
-
-; on entry: DX = cursor pos. which followed deleted text
-;	    BX = current cursor position
-update_del:
-	or deleted,1		; deleted = 1 (or 0FF if bkspc)
- 	inc deleted		; deleted = 2 (or 0 if backspace)
-	mov ax,point
-	cmp ax,wnd_ptr		; backspace may have moved DI off screen
+	;; now: DX = cursor pos. which followed deleted text
+	;; now: BX = current cursor position
+	or deleted, 1		; deleted = 1 (or 0FF if bkspc)
+	inc deleted		; deleted = 2 (or 0 if backspace)
+	mov ax, point
+	cmp ax, wnd_ptr		; backspace may have moved DI off screen
 	jb ret			; screen will have to be re-drawn
 	jmp update_diff
 
 
-; Movement functions:  rgt1, lft1, up1, dn1
-; Scroll text down one line on screen.
+;;; Scroll text down one line on screen.
+;;;
 go_scrldn:
 	call top_up
 	jc ret
-	cmp bh,dh		; bx = old cursor pos;  DX = maxY
+	cmp bh, dh		; bx = old cursor pos;  DX = maxY
 	jnz ret			; if not on last line, return
-	;jmp up1
+	;; jmp up1
 
 
-; Move up one line and set point and cursor.
-; On entry:
-;	DI = point
-;	BX = cursor
-; On exit:
-;	Carry set if already at top line (point & cursor not set;
-;		DI, BX undefined).
-;	NoCarry if cursor was changed (BX = cursor;  DI = point)
-up1:	mov cl,targetX		; cl = target column
+;;; Move up one line and set point and cursor.
+;;; On entry:
+;;;	DI = point
+;;;	BX = cursor position
+;;; On exit:
+;;;     BX = new cursor position
+;;;	C set => failed to move; DI undefined.
+;;;	C clear => success; DI = point
+;;;
+up1:	mov cl, targetX		; cl = target column
 	call mvup1
 	jc ret			; no line above this one; return
+	;; jmp mov_cursor_bx_point_di
+
+
 mov_cursor_bx_point_di:
-	mov cursor,bx
+	mov cursor, bx
 mov_point_di:
-	mov point,di
+	mov point, di
 	ret			; Done moving cursor (return for update)
 
-; On entry:
-;	DI = position in text
-;	BX = cursor position
-;	CL = target column
-; On exit:
-;	BX = 'retreated' cursor position
-;	DI = point in text corresponding to BX
-;	AX,CH = trashed
-;	Carry => mvup failed  (top of text reached before start of line)
-;		(in which case BX, DI are undefined)
-mvup1:	mov physline,-1
-	mov ch,bh
+;;; Move up one line seeking column CL; do not save cursor & point.
+;;;
+mvup1:	mov physline, -1
+	mov ch, bh
 	dec ch			; note that CH == -1 is possible...take care.
 l1:	call dec_ptr
 	jc ret			; return CARRY ==> end of text
 	call reretreat_bx
-	cmp cx,bx
+	cmp cx, bx
 	jl l1			; loop while ((signed)BX > CX)
 	ret			; CARRY=0 because BH==CH && BL <= CL
 
 
-; Scroll test up one line on screen.
+;;; Scroll up one line on screen.
+;;;
 go_scrlup:
 	call top_dn
 	jc ret
 	test bh			; if on first line, move down
 	jnz ret
-	;jmp dn1
+	;; jmp dn1
 
-; Move point and cursor down one line
-; On exit:
-;   (jc ...) Carry => end of text before next line
-;   (ja ...) NoCarry & NotEqual =>
-;      DI = point+1,  BX = cursor + ????
-;dn1:	mov di,point		; skip maxX characters or to CR
-;	mov bx,cursor
-;	mov ch,bh
-;	inc ch			; CH = target line
-;	mov cl,targetX		; CL = target column
-;l1:	call get_next_byte	; get_byte & inc DI
-;	jc ret			; if past end of text, modify nothing
-;	call advance_bx		; Go to next cursor position (indicated by al)
-;	cmp bh,ch		; set NOTHING until at next line
-;	jb l1
-;	cmp bx,cx		; see if this passes up target
-;	ja ret			; return NO CARRY if past target column
-;	call mov_cursor_bx_point_di	; while BL <= CL, set point & cursor
-;	jmp l1
 
-; Advance BX and DI to the net line, column targetX, setting cursor and point.
-; Preserves DX.   Trashes BP.
-; On entry:   BX = cursor;  DI = point
-; On exit:
-;    Carry => end of text before next line (BX & DI undefined)
-;    NoCarry => BX, DI = new cursor, point values
-dn1:	mov ch,bh
+;;; Move down one line and set point and cursor.
+;;; On entry:
+;;;	DI = point
+;;;	BX = cursor position
+;;; On exit:
+;;;     BX = new cursor position
+;;;	C set => failed to move; DI undefined.
+;;;	C clear => success; DI = point
+;;;
+dn1:	mov ch, bh
 	inc ch			; CH = target line
-	mov cl,targetX		; CL = target column
+	mov cl, targetX		; CL = target column
 l1:	call get_next_byte	; get_byte & inc DI
 	jc >r1			; done if past end of text
-	mov bp,bx
+	mov bp, bx
 	call advance_bx		; Go to next cursor position (indicated by al)
-	cmp bx,cx		; loop while BX <= target
+	cmp bx, cx		; loop while BX <= target
 	jbe l1
-	mov bx,bp		; Get previous cursor pos (the last one <= CX)
+	mov bx, bp		; Get previous cursor pos (the last one <= CX)
 r1:	dec di
-	cmp bh,ch
+	cmp bh, ch
 	jc ret			; end of text before next line...
 	jmp mov_cursor_bx_point_di	; set cursor & point, then return
 
 
-; Move to top of text
-go_top:	mov ax,text_top
-	mov point,ax
-	mov wnd_ptr,ax
-	;jmp chk_point
+;;; Move to top (start) of text
+;;;
+go_top:	mov ax, textbuf
+	mov point, ax
+	mov wnd_ptr, ax
+	;; jmp chk_point
 
-; Make sure point is in the range of characters displayed on the screen,
-; wnd_ptr hasn't been changed, and cursor is correct.  If point is out
-; of range, redisplay at position where point is on the desired line.
-; Called after wnd_ptr or point have been changed.
+
+;;; Make sure point is in the range of characters displayed on the screen,
+;;; wnd_ptr hasn't been changed, and cursor is correct.  If point is out
+;;; of range, redisplay at position where point is on the desired line.
+;;; This is called after wnd_ptr or point have been changed.
+;;;
 chk_point:
-	mov al,maxY
-	shr al,1
+	mov al, maxY
+	shr al, 1
 chk_and_place:
-	xchg ax,cx			; for "mov cl,al"; CL = target row
+	xchg ax, cx		; for "mov cl, al"; CL = target row
 	clear bx
-;	mov si,wnd_ptr
-;	cmp si,wnd_drawn		; has wnd_ptr been changed?
+;	mov si, wnd_ptr
+;	cmp si, wnd_drawn	; has wnd_ptr been changed?
 	call chk_drawn
 	jne disp_and_set_cursor
-l1:	cmp si,point			; Is point still in displayed region?
-	je >l9				; if so, just make sure cursor is set
+l1:	cmp si, point		; Is point still in displayed region?
+	je >l9			; if so, just make sure cursor is set
 	ja >l8			; if wnd_ptr>point, stop now and just recenter
 	lodsb			; al = [si++]
 	call advance_bx		; get next screen position
 	jnc l1			; loop while still on screen
-l8:	mov bh,cl			; BH = target row
-	call place_point		; went off screen
+l8:	mov bh, cl		; BH = target row
+	call place_point	; went off screen
 	jmps disp_and_set_cursor
-l9:	;cmp bx,cursor			; This would rarely happen
-	;je ret
-	mov cursor,bx
-	jmp >l1			;jmp set_cursor
+l9:	mov cursor, bx
+	jmp >l1			; jmp set_text_cursor
 disp_and_set_cursor:
 	call disp_page
-l1:	jmp set_the_cursor
+l1:	jmp set_text_cursor
 
 
-go_btm:	mov ax,text_btm
-	mov point,ax
+go_btm:	mov ax, textbufend
+	mov point, ax
 place_btm:
-	mov bh,maxY
+	mov bh, maxY
 	jmps place_point
 
 
 do_dispmode:
 	inc dispmode
-	jmps place_point		; BX = cursor (on entry)
+	jmps place_point	; BX = cursor (on entry)
 
 ; Place wnd_ptr such that point is in the middle line of the screen.
 do_recenter:
-	mov bh,maxY
-	shr bh,1		; BH = maxY/2
+	mov bh, maxY
+	shr bh, 1		; BH = maxY/2
 place_point:	; Place point at line #BH on screen
-	mov di,point
+	mov di, point
 	call get_column		; set CX = start of physical line
-	mov di,physline
-	mov bl,0		; move up from start of line
-	mov cl,bl		; target column = 0
+	mov di, physline
+	mov bl, 0		; move up from start of line
+	mov cl, bl		; target column = 0
 l1:	test bh
 	jz >l2
 	call mvup1
 	jnc l1
 	inc di			; before start of text
-l2:	mov wnd_ptr,di
+l2:	mov wnd_ptr, di
 force_redraw:
 	clear ax
-	mov wnd_drawn,ax
+	mov wnd_drawn, ax
 	ret
 
 
 do_yank:
-	mov [si],di		; set mark to start of undelete region
+	mov [si], di		; set mark to start of undelete region
 	push di			; DI = point
 	call insert_cut		; insert cut buffer into text.
 	pop di			; DI = old point
@@ -553,17 +548,16 @@ do_yank:
 
 ; Set cursor, and redraw the screen if wnd_ptr != wnd_drawn.
 chk_drawn:
-	mov si,wnd_ptr
-	cmp si,wnd_drawn
+	mov si, wnd_ptr
+	cmp si, wnd_drawn
 	ret
-
 
 
 disp_page:
 	clear bx		; top left of window
-	mov di,wnd_ptr		; pos in text area where window display starts
-	mov wnd_drawn,di
-	cmp di,point		; see if point >= wnd_ptr
+	mov di, wnd_ptr		; pos in text area where window display starts
+	mov wnd_drawn, di
+	cmp di, point		; see if point >= wnd_ptr
 	jbe >l2			; go straight to test condition, if so
 r1:	call do_recenter	; This probably shouldn't happen
 	jmp disp_page
@@ -571,17 +565,18 @@ l1:	call get_next_byte	; display until point is reached...
 	jc r1			; at end of text BEFORE point!
 	call disp_byte
 	jc r1			; at end of screen BEFORE point!
-disp_page2:	; entered here to display from a BX & DI before point
-l2:	cmp di,point
+disp_page2:
+l2:	cmp di, point
 	jne l1
-	mov cursor,bx		; set cursor to bx
-disp_rest:	; display from DI on starting at BX, clear to EOS if EOT
+	mov cursor, bx		; set cursor to bx
+disp_rest:
+	;;  display from DI on starting at BX, clear to EOS if EOT
 	call get_next_byte	; display until end of sceen or text
 	jc >l3			; at end of text: clear rest of window
 	call disp_byte
 	jnc disp_rest		; continue if not at end of window
 	ret
-l3:	mov al,EOT_CHAR		; display Omega symbol for end of text
+l3:	mov al, EOT_CHAR	; display Omega symbol for end of text
 	call disp_literal
 	jc ret
 clear_rest:
@@ -590,38 +585,35 @@ clear_rest:
 	ret
 
 
-; On entry:
-;	BX = row,col relative to topleft
-; On exit:
-;	DI = address
-;	BX undefined.
-;	AX unchanged.
+;;; On entry:
+;;;	BX = row, col relative to topleft
+;;; On exit:
+;;;	DI = address
+;;;	BX undefined.
+;;;	AX unchanged.
 calc_address:
-	xchg ax,di
- 	add bx,topleft		; adjust for positioning of topleft
-	mov al,bh
+	xchg ax, di
+	add bx, topleft		; adjust for positioning of topleft
+	mov al, bh
 	mul scrwid		; AX = scrwid*line
-	mov bh,0
-	add ax,bx		; AX = scrwid*line + column
-	add ax,ax
-	xchg ax,di		; DI = address, AX = original value
+	mov bh, 0
+	add ax, bx		; AX = scrwid*line + column
+	add ax, ax
+	xchg ax, di		; DI = address, AX = original value
 	ret
 
 
-; disp_to_eol:  Display characters from position in text DI at screen
-;    position indicated by BX.
-;	On entry:  BX = cursor position,  DI = pointer to text
-;	Exits when (1) end of screen was encountered  (BH > maxY)
-;		   (2) end of text encountered (C flag set)
-;			EOT_CHAR is displayed.  BH may then be > maxY.
-;		   (3) CR was encountered in text (BX = next cursor
-;			position, where CR is to be displayed,  DI points to
-;			position in text after the CR,  C not set.)
-
+;;; Display characters from point to end of line (or end of file or
+;;; screen).
+;;;
+;;; On entry:
+;;;	BX = cursor position
+;;;	DI = point
+;;;
 disp_to_eol:
 	call get_next_byte
 	jc >l1			; display EOT_CHAR if end-of-text
-	call cmp_al_newline	; cmp al,newline
+	call cmp_al_newline	; cmp al, newline
 	jne >s1			; if CR, return with C not set
 	dec di
 	ret
@@ -629,31 +621,30 @@ s1:	call disp_byte
 	jnc disp_to_eol
 	clc			; return with NoCarry on EOS (end of screen)
 	ret
-l1:	mov al,EOT_CHAR
+l1:	mov al, EOT_CHAR
 	call disp_literal
 	stc			; return Carry even if not at EOS
 	ret
 
-; display tab character at BX  [display spaces until at tab stop]
-;    Return Carry if past end of screen.
-; Called only from disp_byte.
+;;; Display tab character at BX  [display spaces until at tab stop]
+;;; On exit:
+;;;	C set => past end of screen
 disp_tab:
-	mov al,32
+	mov al, 32
 	call disp_char
 	jc ret
-	mov al,bl
-	mov ah,0
+	mov al, bl
+	mov ah, 0
 	div tabwid		;  AL = column / tabwid , AH = remainder
 	test ah
 	jnz disp_tab
 	ret
 
-; disp_eol:  Clear to end of line & advance to start of next line
-;    On entry:	BX = cursor position
-;    On exit:	BX = new cursor position,
-;		AX trashed.
-;		C flag set if BX is off screen
-; Called only from disp_byte.
+;;; Clear to end of line & advance to start of next line
+;;; On entry:	BX = cursor position
+;;; On exit:	BX = new cursor position,
+;;;		AX trashed.
+;;;		C flag set if BX is off screen
 disp_eol:
 	push cx
 	call clr_to_eol
@@ -661,46 +652,49 @@ disp_eol:
 	call bx_to_nextline
 	ret			; return with C not set if BH on screen
 
-; Display character.  If at EOL, pop 2 words and then return (returning Carry
-;	if past end of screen).
+;;; Display character.  If at EOL, pop 2 words and then return.  On
+;;; exit, C set => past end of screen.
+;;;
 disp_char_and_ret:
 	call disp_char
 	jc >d9
 	test bl
 	jnz ret
-d9:	pop ax,ax		; return address; value pushed in disp_byte
+d9:	pop ax, ax		; return address; value pushed in disp_byte
 	ret
 
-; disp_byte:  Display character at window position denoted by BX,
-;    and increment BX to next position in window.  It is guaranteed that on
-;    exit, if BH is on a new line then BL will be 0.  (No displayed byte
-;    overlaps a line boundary.)
-; Processes newline, tab, and control and graphics characters.
-;	On entry: AL = character,  BX = position in window
-;	On exit:  BX = new cursor position, C flag set if BX is off screen
-;		  AL modified (Unchanged except newline or tab, where it's 32.)
+;;; Display character at window position denoted by BX, and increment BX
+;;; to next position in window.  It is guaranteed that on exit, if
+;;; BH is on a new line then BL will be 0.  (No displayed byte
+;;; overlaps a line boundary.)
+;;;
+
+;;; Processes newline, tab, and control and graphics characters.
+;;;	On entry: AL = character, BX = position in window
+;;;	On exit:  BX = new cursor position, C flag set if BX is off screen
+;;;		  AL modified (Unchanged except newline or tab, where it's 32.)
 disp_byte:
-	test al,not 31
+	test al, not 31
 	jnz >l1			; go if not a control character
 	call cmp_al_newline
 	jz disp_eol
-	jmpon tabchar, disp_tab
-		;   Display control character
-	test dispmode,1
+	jmpon TABCHAR, disp_tab
+	;; Display control character
+	test dispmode, 1
 	jz >l1
-	; dispmode.0 = Ctrl-char attribute (0 = graphic character, 1 = "^x")
-	; dispmode.1 = UPPER ASCII attribute (0 = graphics character, 1="\nn")
+	;; dispmode.0 = Ctrl-char attribute (0 = graphic character, 1 = "^x")
+	;; dispmode.1 = UPPER ASCII attribute (0 = graphics character, 1="\nn")
 	push ax
-	mov al,'^'
+	mov al, '^'
 	call disp_char_and_ret
 	pop ax
-	add al,64
-		; Check upper-ASCII characters
-l1:	jns >l2		; If not an 8-bit character, skip to disp_char
-	test dispmode,2
+	add al, 64
+	;; Check upper-ASCII characters
+l1:	jns >l2			; If not an 8-bit character, skip to disp_char
+	test dispmode, 2
 	jz >l2
 	push ax
-	mov al,'\'
+	mov al, '\'
 	call disp_char_and_ret
 	pop ax
 	push ax
@@ -708,62 +702,65 @@ l1:	jns >l2		; If not an 8-bit character, skip to disp_char
 	call get_hd_val
 	call disp_char_and_ret
 	pop ax
-	and al,15
+	and al, 15
 	call get_hd_val
-l2:	;call disp_char		;fall through to disp_char & return
-	;ret
+l2:	;; jmp disp_char
 
-; disp_char:  Display character at window position denoted by BX, and
-;    increment BX to next position in window.  Characters in the rightmost
-;    column are displayed in inverse video.
-; Modifies AX,BX
-;	On entry: AL = character,  BX = position in window
-;	On exit:  BX = new cursor position, C flag set if BX is off screen
-;		  AX = undefined
+
+;;; Display a character at window position denoted by BX, and
+;;;    increment BX to next position in window.  Characters in the rightmost
+;;;    column are displayed in inverse video.
+;;; On entry:	AL = character, BX = position in window
+;;; On exit:	BX = new cursor position, C flag set if BX is off screen
+;;;		AX = undefined
+;;;
 disp_char:
-	cmp al,13
+	cmp al, 13
 	jz >x1
-	cmp al,22
+	cmp al, 22
 	jnz >x2
 x1:	xor al, 13 xor 22
-x2:	mov ah,invcolor
-	cmp bl,maxX
+x2:	mov ah, invcolor
+	cmp bl, maxX
 	je >l2
-; Display character with no processing, never inverse video.
+	;; Display character with no processing, never inverse video.
 disp_literal:
-	mov ah,color
+	mov ah, color
 l2:	push cx
-	mov cx,1
+	mov cx, 1
 	call disp_cx_ax		; Display CX copies of AX at BX
 	pop cx
 	jmps inc_bx		; increment bl; if bl>maxX then bl=0; bh++
-	;ret			; C set if bh > ah,  C not set if bh <= ah
+	;ret			; C set if bh > ah, C not set if bh <= ah
 
 ; Move cursor down one line
 go_dn:	call dn1
-	jnc chk_advance		; if cursorH>maxX, call 'top_dn()'
-	ret			; EOT before end of line; BX invalid
+	jnc chk_advance         ; if cursorH>maxX, call 'top_dn()'
+	ret                     ; EOT before end of line; BX invalid
 
 
-
-; Advance cursor and keep cursor on screen by calling 'top_dn' if necessary.
-;  On entry: AL = character to "advance" over
-;  On exit:  BX = new cursor value; All other regs unchanged.
+;;; Advance cursor and keep cursor on screen by calling 'top_dn' if necessary.
+;;; On entry: AL = character to "advance" over
+;;; On exit:  BX = new cursor value; All other regs unchanged.
 advance_cursor:
-	mov bx,cursor
+	mov bx, cursor
 	call advance_bx
-	mov cursor,bx
-; chk_advance:	On entry,  BX = cursor
+	mov cursor, bx
+	;; jmp chk_advance
+
+;;; Scroll down if necessary to expose cursor.
+;;; On entry: BX = cursor
+;;;
 chk_advance:
-	cmp bh,maxY
+	cmp bh, maxY
 	jbe ret
 	dec bh
-	mov cursor,bx
-	;jmp top_dn			; call top_dn() and return
+	mov cursor, bx
+	;; jmp top_dn			; call top_dn() and return
 ; top_dn: moves start of window down one line
 ;   Saves BX, DI, SI
-top_dn:	push bx,di,si
-	mov di,wnd_ptr			; where window starts
+top_dn:	push bx, di, si
+	mov di, wnd_ptr			; where window starts
 	clear bx
 l1:	call get_next_byte
 	jc >r1
@@ -771,187 +768,195 @@ l1:	call get_next_byte
 	test bl				; advance until BL = 0
 	jnz l1
 adjust_top_ret:
-	mov wnd_ptr,di
-r1:	pop si,di,bx
+	mov wnd_ptr, di
+r1:	pop si, di, bx
 	ret
 
 
-; advance_bx:       Modifies BX, AL
-;	if al=newline then bl = 0; bh++ else
-;	  bl++
-;	  if bl>maxX then bl=0; bh++
-;	end
-;	if bh > maxY then return Carry  else return NoCarry
+;;; Advance cursor
+;;;	if al=newline then bl = 0; bh++ else
+;;;	  bl++
+;;;	  if bl>maxX then bl=0; bh++
+;;;	end
+;;;	if bh > maxY then return Carry  else return NoCarry
+;;; On entry:
+;;;	BX = cursor position
+;;;	AL = character we are advancing over
+;;;
 advance_bx:
-	test al,not 31			; see if <= 31
-	js >a0				; go if 8-bit character
-	jnz inc_bx			; go if normal character
+	test al, not 31		; see if <= 31
+	js >a0			; go if 8-bit character
+	jnz inc_bx		; go if normal character
 	jmpon newline, bx_to_nextline	; If LF, go to LF routine
-	jmpon tabchar, >l1
-	test dispmode,1
+	jmpon TABCHAR, >l1
+	test dispmode, 1
 	jz inc_bx
-	jmps incbx2			; "^X" mode takes an extra byte
-a0:	test dispmode,2		; See how we should display 8-bit characters
+	jmps incbx2		; "^X" mode takes an extra byte
+a0:	test dispmode, 2	; See how we should display 8-bit characters
 	jz inc_bx		; if not in "\XX" mode, go to normal case
 	inc bx			; else add 3 to BL (won't overflow into BH)
 incbx2: inc bx
 inc_bx:	inc bx			; for "inc bl"; advance cursor for normal char
-chk_bx:	cmp maxX,bl		; see if past last column
+chk_bx:	cmp maxX, bl		; see if past last column
 	jnc ret			; return if within 0..maxX
 bx_to_nextline:	   ; Advance to start of next line & set C if off screen
-	mov bl,0		; put bx at start of next line
+	mov bl, 0		; put bx at start of next line
 	inc bh
-	cmp maxY,bh
+	cmp maxY, bh
 	ret			; return Carry if bh is off screen
 l1:	push ax			; save AH
-	mov al,bl
-	mov ah,0
+	mov al, bl
+	mov ah, 0
 	div tabwid
-	add bl,tabwid		; add width of a tab, minus
-	sub bl,ah		;    # of characters overlapping previous tab
+	add bl, tabwid		; add width of a tab, minus
+	sub bl, ah		;    # of characters overlapping previous tab
 	pop ax			; restore AH
 	jmp chk_bx
 
 
-;
-; "Global positioning" section: Given a point in the text, find out the
-;	corresponding physical screen column.
-;  retreat_cursor:
-;  retreat_bx:
-;  get_column:
-;
 
-; Retreat cursor and keep cursor on screen by calling 'top_up' if necessary.
+;;; Retreat cursor and keep cursor on screen by calling 'top_up' if necessary.
 retreat_cursor:
-	mov bx,cursor
+	mov bx, cursor
 	call retreat_bx
-	mov cursor,bx
+	mov cursor, bx
+	;; jmp chk_retreat
+
+;;; Scroll up to expose cursor if necessary.
+;;; On entry: BX = cursor pos
+
 chk_retreat:
-	cmp bh,0ffh
+	cmp bh, 0ffh
 	jnz ret
 	inc bh
-	mov cursor,bx
-	;jmp top_up
-; top_up:	(Trashes AX)
-; Sets wnd_ptr to the start of the physical line preceding the current wnd_ptr
-top_up:	push bx,di,si
-	mov di,wnd_ptr
-	mov si,-1
-	mov bx,0100h
+	mov cursor, bx
+	;; jmp top_up
+
+
+;;; Scroll "up": set wnd_ptr to the start of the physical line preceding
+;;; the current wnd_ptr
+;;;
+top_up:	push bx, di, si
+	mov di, wnd_ptr
+	mov si, -1
+	mov bx, 0100h
 l1:	call dec_ptr
 	jc >l3
 	call retreat_bx
-	cmp si,physline
+	cmp si, physline
 	je >a1
-	mov si,physline
-	mov di,si
-	mov bl,0
+	mov si, physline
+	mov di, si
+	mov bl, 0
 a1:	test bl			; retreat until BL = 0
 	jnz l1
 	dec di			; just to pre-compensate for following inc di
 l3:	inc di
-	jmp adjust_top_ret		;mov wnd_ptr,di; pop si,di,bx;  ret
+	jmp adjust_top_ret
 
-; Move cursor up one line
+;;; Move cursor up one line
+;;;
 go_up:	call up1
 	jnc chk_retreat		; if cursorH=-1, call 'top_up()'
 	ret
 
 
-; retreat_bx:		(Saves all registers used, except AX)
-; Finds cursor position after moving point backwards.  Does not move
-; 'wnd_ptr', so BX may point off screen (line -1, column 0, for example).
-;
-; On entry: [DI] points to character where cursor will be
-;	    BX containts cursor position
-; if bl=0 then bl = wndwid; bh--
-; if [DI] == tabchar  or  [DI] == newline then
-;   decrement SI to previous CR (or top of text)
-;   advance BX according to SI and increment SI until SI = DI
-; else
-;   bl--
-; end
-
+;;; Find cursor position after moving point backwards, without moving
+;;; 'wnd_ptr', so BX may point off screen (line -1, column 0, for example).
+;;;
+;;; On entry:	[DI] points to character where cursor will be
+;;;		BX containts cursor position
+;;; if bl=0 then bl = wndwid; bh--
+;;; if [DI] == TABCHAR  or  [DI] == newline then
+;;;   decrement SI to previous CR (or top of text)
+;;;   advance BX according to SI and increment SI until SI = DI
+;;; else
+;;;   bl--
+;;; end
+;;;
 retreat_bx:
-	mov physline,-1
+	mov physline, -1
 reretreat_bx:
 	test bl
 	jnz >l1
-	mov bl,disp_cols
+	mov bl, disp_cols
 	dec bh
 l1:	dec bx			; for "dec bl"
-	cmp b[di],32		; Check for control characters & high-bit
+	cmp b[di], 32		; Check for control characters & high-bit
 	jge ret			; if ((signed) AL) >= 32, return now
 				; Otherwise, "give up" and use get_column.
-; A somewhat more efficient algorithm would only use get_column for
-;  tabchar, newline, and for the other ctrl chars only when dispmode != 0.
-;-- If newline or tabchar...
-l3:	;jmp get_column		; find what column DI is in, and return
-	cmp di,physline		;  physline may hold the value of a much
+	;; A somewhat more efficient algorithm would only use get_column for
+	;;  tab, newline, and for the other ctrl chars only when dispmode != 0.
+	;;-- If newline or tabchar...
+l3:	cmp di, physline	;  physline may hold the value of a much
 	jb get_column		;  closer known start-of-line
 	push si			; If it is set, we'll assume it's still
-	mov si,physline		; valid.
+	mov si, physline	; valid.
 	jmps get_column_from_si
 
-; Find what column a given point in text would occur in.
-; On entry:  DI = a point in the text
-; On exit:   BL = cursor column corresponding to SI
-;	     BH unchanged.
-;	     AX undefined.
-;	     physline = position of the most recent start of physical line
+
+;;; Find what column a given point in text would occur in.
+;;; On entry:  DI = a point in the text
+;;; On exit:   BL = cursor column corresponding to SI
+;;;	     BH unchanged.
+;;;	     AX undefined.
+;;;	     physline = position of the most recent start of physical line
 get_column:
 	push si
-	mov si,di		; Let's do this the easy way:
+	mov si, di		; Let's do this the easy way:
 	call find_sol		;    start from the beginning of the line.
 get_column_from_si:
-	mov ah,bh
-	mov bl,0		; BX tracks what cursor pos would be
+	mov ah, bh
+	mov bl, 0		; BX tracks what cursor pos would be
 	call advance_to_di
-	mov bh,ah
+	mov bh, ah
 	pop si
 	ret
 
-; Find cursor position corresponding to text position DI, given SI & BX
-; On entry: SI = a position in the text
-;	    BX = cursor position corresponding to SI
-;	    DI = a text position following SI
-; On exit:  BX = cursor position corresponding to DI
-;	    physline = last text position at the start of a physical line
-;
+;;; Find cursor position corresponding to text position DI, given SI & BX
+;;; On entry:
+;;;	SI = a position in the text
+;;;	BX = cursor position corresponding to SI
+;;;	DI = a text position following SI
+;;; On exit:
+;;;	BX = cursor position corresponding to DI
+;;;	physline = last text position at the start of a physical line
+;;;
 l0:	lodsb			; al = [SI++]
 	call advance_bx
-	cmp bh,disp_lines
+	cmp bh, disp_lines
 	if a dec bh		; If BH > disp_lines, dec BH
 advance_to_di:
 	test bl
-	if z mov physline,si	; Keep track of the start of the physical line.
-	cmp si,di		; If at byte where cursor is,
+	if z mov physline, si	; Keep track of the start of the physical line.
+	cmp si, di		; If at byte where cursor is,
 	jne l0			;   we're done
 	ret
 
 
-; set the BIOS cursor to 'cursor'
-set_the_cursor:
-	mov bx,cursor
-	;jmp set_cursor
+;;; Set the BIOS cursor to the text area (given by 'cursor')
+;;;
+set_text_cursor:
+	mov bx, cursor
+	;; jmp set_cursor
 
-; set_cursor: sets BIOS cursor to BX (BX is considered relative to topleft)
-;   Saves all registers used.
+;;; Set the BIOS cursor to BX (BX is considered relative to topleft)
+;;;
 set_cursor:
-	push ax,bx,dx
-	mov ah,2		; 2 = set cursor position
-	mov dx,bx		; DH = cursor Y, DL = cursor X
-	add dx,topleft		; WARNING: if xoff+BL exceeds 256....
-	mov bh,0		; page 0
+	push ax, bx, dx		; TODO: save/restore BX should not be necessary
+	mov ah, 2		; 2 = set cursor position
+	mov dx, bx		; DH = cursor Y, DL = cursor X
+	add dx, topleft		; WARNING: if xoff+BL exceeds 256....
+	mov bh, 0		; page 0
 	int 010h
-	pop dx,bx,ax
+	pop dx, bx, ax
 sa_ret:	ret
 
 
 scan_args:
-	mov si,ARGBUF		; first byte of arguments
+	mov si, ARGBUF		; first byte of arguments
 	lodsb
-	mov b[si-1],0
+	mov b[si-1], 0
 	jmp >s1
 sa_skipspace:
 	lodsb			; AL = *SI++
@@ -961,51 +966,54 @@ s1:	call dispatch_al
 	dvect '-', sa_dash	; evaluate switch...
 	db 0
 	dec si
-	mov di,ARGBUF		; Take arg as file name, put SI at end of arg
+	mov di, ARGBUF		; Take arg as file name, put SI at end of arg
 f0:	movsb
-	cmp b[si],32
+	cmp b[si], 32
 	jg f0
-	mov b[di],0
+	mov b[di], 0
 	jmp sa_skipspace
 sa_dash:
 	lodsb			; get switch letter
 	call cmp_al_white
 	jz sa_err
-	xchg cx,ax		; for "mov cl,al";   CL = switch letter
+	xchg cx, ax		; for "mov cl, al";   CL = switch letter
 	call get_num		; get number -> AL
-	xchg ax,cx		; AL = switch letter;  CL = numeric value
-	; Set arg value referenced by AL to BL
-	cmp al,'n'		; check for argument 'n'
+	xchg ax, cx		; AL = switch letter;  CL = numeric value
+	;; Set arg value referenced by AL to BL
+	cmp al, 'n'		; check for argument 'n'
 	jne >l2
-	mov verbatim,al		; On '-n...', set verbatim non-zero
-l2:	mov di,argbindings	; first look for standard binding
+	mov verbatim, al	; On '-n...', set verbatim non-zero
+l2:	mov di, argbindings	; first look for standard binding
 	call get_assoc		; find variable associated with arg
 	jc sa_err		; not in arg/variable binding list
-	mov di,[di]
-	mov [di],cl		; put bl in variable
+	mov di, [di]
+	mov [di], cl		; put bl in variable
 	jmp sa_skipspace	; This & fallthrough performs next two lines
 
 
 sa_err:	mov dx, dosmsg3		; report command line error
-	;jmp err_exit
-; Display error msg at DX to console and exit to DOS.
+	;; jmp err_exit
+
+
+;;; Display error msg at DX to console and exit to DOS.
+;;;
 err_exit:
-	mov ah,09h		; print '$'-terminated string starting at DX
+	mov ah, 09h		; print '$'-terminated string starting at DX
 	int 021h		; print error
 	jmp exit_to_dos
 
 
-; Read decimal number at [SI] (terminated by CR or space)
-;   On return:	AL = value of number
-;		AH, BX = destroyed
-;		SI = char after string (either SPACE or CR)
+;;; Read decimal number at [SI] (terminated by CR or space)
+;;;  On return:	AL = value of number
+;;;		AH, BX = destroyed
+;;;		SI = char after string (either SPACE or CR)
 get_num:
-	mov bh,10
-	cmp b[si],'0'
-	if z mov bh,16
-	mov al,0
-l1:	mov bl,[si]		; Get next digit
-	cmp bl,32
+	mov bh, 10
+	cmp b[si], '0'
+	if z mov bh, 16
+	mov al, 0
+l1:	mov bl, [si]		; Get next digit
+	cmp bl, 32
 	jbe ret
 
         ;; get hex digit value
@@ -1013,84 +1021,84 @@ l1:	mov bl,[si]		; Get next digit
 	cmp bl, 'A'
 	if ae sub bl, 'A' - 10
 
-	cmp bl,bh
+	cmp bl, bh
 	jae sa_err
 	mul bh			; AX = AL*base
-	add al,bl		; AL = AL*base + bl
+	add al, bl		; AL = AL*base + bl
 	inc si
 	jmp l1
 
 
-; Display message number AL on status line, highlighted
-; On exit:	AX, CX, SI undefined.
-;
+;;; Display message number AL on status line, highlighted
+;;; On exit:	AX, CX, SI undefined.
+;;;
 disp_status_msg:
-	mov si,msg0 - 1
+	mov si, msg0 - 1
 	neg al
-	mov [si],al
-	;jmp disp_stat_hlt
+	mov [si], al
+	;; jmp disp_stat_hlt
 
-; Display status line in highlight color
-;
+;;; Display status line in highlight color
+;;;
 disp_stat_hlt:
-	mov al,hltcolor
-        ;jmp disp_stat_col
+	mov al, hltcolor
+        ;; jmp disp_stat_col
 
-; Display status line in color AL
-;
+;;; Display status line in color AL
+;;;
 disp_stat_col:
-	mov color,al
+	mov color, al
 	pushi use_defcolor	; return to here after disp_statline
-	;jmp disp_statline
+	;; jmp disp_statline
 
-; Display string SI at start of status line, and clear to eol
-; On exit:  AX, BX, CX undefined.
-;	SI points to byte following terminating 0.
-;
+;;; Display string SI at start of status line, and clear to eol
+;;; On exit:  AX, BX, CX undefined.
+;;;	SI points to byte following terminating 0.
+;;;
 disp_statline:
 	pushi clr_to_eol	; return to clr_to_eol after disp_str()
-	mov bl,0		;    (same as call disp_str; jmp clr_to_eol)
-	;jmp disp_str_statline
+	mov bl, 0		;    (same as call disp_str; jmp clr_to_eol)
+	;; jmp disp_str_statline
 
-; Display string at column BL on the status line
-; On return: see disp_str
-;
+;;; Display string at column BL on the status line
+;;; On return: see disp_str
+;;;
 disp_str_statline:
-	mov clrstat,2		; clear this line after next keypress
-	mov bh,maxY
+	mov clrstat, 2		; clear this line after next keypress
+	mov bh, maxY
 	inc bh
 
-; Display string at position indicated by BX
-;	BH, BL = row, column after end of string
-;	CX = # of bytes to end of line after string
-;	SI points to byte after string (after terminating 0).
-;	AX trashed; other registers preserved.
-; TODO: don't exceed line length?
-;
+;;; Display string at position indicated by BX
+;;;	BH, BL = row, column after end of string
+;;;	CX = # of bytes to end of line after string
+;;;	SI points to byte after string (after terminating 0).
+;;;	AX trashed; other registers preserved.
+;;; TODO: don't exceed line length?
+;;;
 disp_str:
 	lodsb			; al = *SI++
 	test al
 	jz ret
-	js >l2		; If high bit set, display substring.
+	js >l2			; If high bit set, display substring.
 	test bl
-	if z and al,95			; capitalize AL
+	if z and al, 95		; capitalize AL
 	call disp_char
 	test bl
-	jnz disp_str			; loop while not past end of line
-	mov bl,disp_cols
+	jnz disp_str		; loop while not past end of line
+	mov bl, disp_cols
 	dec bh
-l1:	lodsb				; be sure to get to end of string
+l1:	lodsb			; be sure to get to end of string
 	test al
 	jnz l1
 	ret
 
-	; Lookup and display string (-AL), then continue displaying at SI
+	;; Lookup and display string (-AL), then continue displaying at SI
 l2:	push si			; Save current position.
 	neg al
 	js >f0			; neg(-128) == -128  (if so, use filename)
-	mov si,msg0
+	mov si, msg0
 	cbw
-	xchg ax,cx	; CX = string index
+	xchg ax, cx		; CX = string index
 	;; Don't correctly handle the 0 case.
 d1:	lodsb
 	test al
@@ -1100,8 +1108,8 @@ d2:	call disp_str
 dlret:	pop si			; Restore position in enclosing string
 	jmp disp_str		; and continue.
 
-        ; Display filename
-f0:	mov si,ARGBUF
+        ;; Display filename
+f0:	mov si, ARGBUF
 f1:	lodsb
 	test al
 	jz dlret
@@ -1110,71 +1118,75 @@ f1:	lodsb
 
 
 menuret:
-	; Fall through to chk_clr_stat
+	;; Fall through to chk_clr_stat
 chk_clr_stat:
-	shr clrstat,1
+	shr clrstat, 1
 	jnc ret
-	;jmp clr_statline
-; clr_statline:  clears status line
-;     On exit:  BH = cursor position at start of status line, CX & AX undefined
-; clr_to_eol:  clears from BX to end of line.
-;     On exit:  BX unchaged;  CX & AX undefined
-clr_statline:
-	mov bl,0
-	mov bh,maxY
-	inc bh
-clr_to_eol:
-	mov cl,disp_cols
-	sub cl,bl
-	mov ch,0
-	;jmp disp_cx_spaces
+	;; jmp clr_statline
 
-; Display CX spaces at BX
-;    On exit:  AX, CX undefined
+
+;;; Clear the status line.
+;;;
+clr_statline:
+	mov bl, 0
+	mov bh, maxY
+	inc bh
+
+;;; Clear from BX to end of line.
+;;;
+clr_to_eol:
+	mov cl, disp_cols
+	sub cl, bl
+	mov ch, 0
+	;; jmp disp_cx_spaces
+
+;;; Display CX spaces at BX
+;;; On exit:  AX, CX undefined
+;;;
 disp_cx_spaces:
-	mov ah,color
-	mov al,020h		; 020h = space
-	;call disp_cx_ax	; fall through
-	;ret
+	mov ah, color
+	mov al, 020h		; 020h = space
+	;; jmp disp_cx_ax	; fall through
 
 disp_cx_ax:
 	push bx
 	test screen_page
 	jz >l1
-	  ; Write directly to video buffer
-	mov es,screen_seg
+	;; Write directly to video buffer
+	mov es, screen_seg
 	push di
 	call calc_address	; DI = address
 	rep stosw		; store CX char/attribute pairs at ES:[DI++]
 	pop di
-	mov es,ds
+	mov es, ds
 	jmp >l2
-	  ;   Use BIOS to display character
-l1:	call set_cursor			; put cursor at BX
-	mov bx,0009			; bh = page 0;  bl = 9
-	xchg bl,ah			; bl = color;  ah = function 9
-	int 010h			; Display CX spaces
+	;;   Use BIOS to display character
+l1:	call set_cursor		; put cursor at BX
+	mov bx, 0009		; bh = page 0;  bl = 9
+	xchg bl, ah		; bl = color;  ah = function 9
+	int 010h		; Display CX spaces
 l2:	pop bx
 	ret
 
 
 do_menu1:
-	mov si,ESCmenu
-	;jmp show_menu
+	mov si, ESCmenu
+	;; jmp show_menu
 
-; On entry:	SI points to menu
-;
+;;; Show menu
+;;; On entry: SI = menu to display
+;;;
 show_menu:
-	call disp_statline		; inc SI past menu title
-l0:	mov bh,0			; first item = 1
+	call disp_statline	; inc SI past menu title
+l0:	mov bh, 0		; first item = 1
 menu_next:
-	inc bh				; advance to next item
-	cmp bh,[si]
+	inc bh			; advance to next item
+	cmp bh, [si]
 	ja l0
-	; Always at menu_loop:
-	;   BH = current item (item to be highlighted)
-	;   BL = meuncol (column where menu title ended)
-	;   SI = menu data (b[si] = # of items, w[si+1] = addr. of bindings)
+	;; Always at menu_loop:
+	;;   BH = current item (item to be highlighted)
+	;;   BL = meuncol (column where menu title ended)
+	;;   SI = menu data (b[si] = # of items, w[si+1] = addr. of bindings)
 menu_loop:
 	call menu_showitem		; highlight current item
 	call dispatch_key
@@ -1185,76 +1197,77 @@ menu_loop:
 	dvect -04b, menu_prev	; left arrow
 	db 0
 	jz menu_next		; spacebar => next item
-;  Check list of action letters for AL
-	and al,95		; Make lower-case upper
-	mov di,[si+1]
+	;;  Check list of action letters for AL
+	and al, 95		; Make lower-case upper
+	mov di, [si+1]
 	call get_assoc_b	; NoCarry is true if there was a match
 	jc menu_loop
-	mov bh,[di]		; BH = [si++]
-; Select item BH
+	mov bh, [di]		; BH = [si++]
+	;; Select item BH
 menu_sel:
-	mov al,2
+	mov al, 2
 	mul bh			; AX = item * 2
-	xchg ax,bx		; for "mov bx,ax"
+	xchg ax, bx		; for "mov bx, ax"
 	push [si+bx+1]
 	;dec clrstat		; clrstat=1 => clear status before next getkey
 	jmp chk_clr_stat	; clear status before next getkey
 menu_prev:
 	dec bh			; left arrow: Go to previous item
 	jnz menu_loop
-	mov bh,[si]
+	mov bh, [si]
 	jmp menu_loop
 
 
-; Display the menu items at column BL, highlighting option BH.
-;  If BH is not in the range, 1..b[si], bad things will happen.
-;  Destroys AX, CX, DL
+;;; Display the menu items at column BL, highlighting option BH.
+;;; If BH is not in the range, 1..b[si], bad things will happen.
+;;; Destroys AX, CX, DL
+;;;
 menu_showitem:
-	push bx,si
-	mov dl,bh		; dl = item to highlight
+	push bx, si
+	mov dl, bh		; dl = item to highlight
 	lodsb			; Calculate start of item descriptions...
-	mov dh,al		; dh = # of items to display
+	mov dh, al		; dh = # of items to display
 	cbw
 	inc ax
-	add ax,ax		; AX = no. items * 2 + 2
-	add si,ax		; SI = start of descriptions
-	; Always at L0:  DH = items remaining to display
-	;		 DL = no. of items before highlighted one
-	;		 SI = next item description
-	;		 BL = column to display next item at
-l0:	add bl,3
-	mov ax,hlt_and_inv	; AL = hlt, AH = inv
+	add ax, ax		; AX = no. items * 2 + 2
+	add si, ax		; SI = start of descriptions
+	;; Always at L0:  DH = items remaining to display
+	;;		 DL = no. of items before highlighted one
+	;;		 SI = next item description
+	;;		 BL = column to display next item at
+l0:	add bl, 3
+	mov ax, hlt_and_inv	; AL = hlt, AH = inv
 	dec dl
 	jnz >l1
 	push bx			; PUSH column where inverted option starts
-	xchg al,ah		; if dl=dh, use inverse...
-l1:	mov color,al
+	xchg al, ah		; if dl=dh, use inverse...
+l1:	mov color, al
 	call disp_str_statline
 	dec dh
 	jnz l0
 	pop ax			; DL = column where highlighted option started
-	mov bl,al
+	mov bl, al
 	call set_cursor
-	pop si,bx
-	;jmp use_defcolor
+	pop si, bx
+	;; jmp use_defcolor
 
 use_defcolor:
-	mov al,defcolor
-	mov color,al
+	mov al, defcolor
+	mov color, al
 	ret
 
 
 chk_exit:
 	test unsaved
 	jz exitOK
-	mov si,EXITmenu			; "Abort and lose changes?"
+	mov si, EXITmenu	; "Abort and lose changes?"
 	jmp show_menu
 
 exitOK:	call clr_statline
 	dec bh
 	call set_cursor
 exit_to_dos:
-	mov ax,04c00
+	mov ax, 04c00
 	int 021h
 
 save_and_exit:
@@ -1264,83 +1277,81 @@ save_and_exit:
 	jmp exit_to_dos
 
 
-; Set srcwid, scrhgt, and screen_seg (if BIOS mode is known)
+;;; Set srcwid, scrhgt, and screen_seg (if BIOS mode is known)
+;;;
 check_disp_mode:
-	mov ah,0Fh
+	mov ah, 0Fh
 	int 010h		; AH <- # of columns;  AL <- video mode number
-	cmp al,7		; test BIOS mode
-	mov al,0b8		; AX = 0b800 = CGA screen segment
+	cmp al, 7		; test BIOS mode
+	mov al, 0b8		; AX = 0b800 = CGA screen segment
 	jb >c1			; use segment b800 for video modes < 7
-	if a sub al,0b0		; use BIOS for mode > 7 (screen_seg = 0)
-	sub al,08		; use segment b000 for mode 7
-c1:	mov screen_page,al	;  else !=0 and !=1 ==>  use as segment MSB
-; Now set scrwid and scrhgt  (AH still == # of columns)
-	mov si,044h
-	mov ds,si
+	if a sub al, 0b0	; use BIOS for mode > 7 (screen_seg = 0)
+	sub al, 08		; use segment b000 for mode 7
+c1:	mov screen_page, al	;  else !=0 and !=1 ==>  use as segment MSB
+	;; Now set scrwid and scrhgt  (AH still == # of columns)
+	mov si, 044h
+	mov ds, si
 	lodsb			; al = b[0044:0044] = b[0000:0484] = scrhgt-1
-;;;	mov ah,[0000:044Ah]	-- we already have this in AH!
-	mov ds,cs
+	;; mov ah, [0000:044Ah]	-- we already have this in AH!
+	mov ds, cs
 	inc ax			; for "inc al"
-	xchg al,ah		; AH=lines,  AL=cols
-	mov hgt_and_wid,ax	; hgt=AH,  wid=AL
+	xchg al, ah		; AH=lines, AL=cols
+	mov hgt_and_wid, ax	; hgt=AH, wid=AL
 	ret
 
-;;
-;;  Subroutines
-;;
 
 get_hd_val:
-	add al,48
-	cmp al,'0'+10
-	if ae add al,'A'-'9'-1
+	add al, 48
+	cmp al, '0'+10
+	if ae add al, 'A'-'9'-1
 	ret
 
 chk_white:			; returns Z if [DI] is whitespace char
-	;mov di,point
-	mov al,[di]
+	;mov di, point
+	mov al, [di]
 cmp_al_white:			; returns Z if AL is a whitespace char
 	jmpon 32, ret
 	jmpon 13, ret
-	jmpon tabchar, ret
+	jmpon TABCHAR, ret
 cmp_al_newline:
-	cmp al,newline
+	cmp al, newline
 	ret
 
 
-beep:	push ax,dx
-	mov ah,2
-	mov dl,7
+beep:	push ax, dx
+	mov ah, 2
+	mov dl, 7
 	int 021h
-	pop dx,ax
+	pop dx, ax
 	ret
 
 
-; get_assoc : Search a (key, value) association table.  Each key
-;     is a byte; each value is a word. A zero key terminates the table.
-;
-; On entry:
-;	AL = key to search for
-;	DI = pointer to sequence of (byte, word) pairs
-; On exit:
-;       NoCarry => found;   DI = ptr to value in matching pair
-;       Carry => not found; DI = ptr to byte after terminating zero
-;	All other regs, unchanged.
-
-l0:	scasw				; for "inc DI,2"
+;;; Search a (key, value) association table.  Each key is a byte;
+;;; each value is a word. A zero key terminates the table.
+;;;
+;;; On entry:
+;;;	AL = key to search for
+;;;	DI = pointer to sequence of (byte, word) pairs
+;;; On exit:
+;;;       NoCarry => found;   DI = ptr to value in matching pair
+;;;       Carry => not found; DI = ptr to byte after terminating zero
+;;;	All other regs, unchanged.
+;;;
+l0:	scasw				; for "inc DI, 2"
 get_assoc:
-	scasb				; cmp al,[di++]
+	scasb				; cmp al, [di++]
 	jz ret				; If AL is found, return NoCarry
-	cmp b[di-1],1
+	cmp b[di-1], 1
 	jnc l0
 	ret				; If [di-1] == 0, return with Carry
 
-; get_assoc_b : Like get_assoc, but values are bytes, nor words.
-
-l0:	inc di				; for "inc DI,2"
+;;; Like get_assoc, but values are bytes, nor words.
+;;;
+l0:	inc di				; for "inc DI, 2"
 get_assoc_b:
-	scasb				; cmp al,[di++]
+	scasb				; cmp al, [di++]
 	jz ret				; If AL is found, return NoCarry
-	cmp b[di-1],1
+	cmp b[di-1], 1
 	jnc l0
 	ret				; If [di-1] == 0, return with Carry
 
@@ -1359,106 +1370,101 @@ argbindings:
 	db 0
 
 
-; find_sol:  Find start of line.
-; Decrement SI until [SI-1] == newline  ( [text_top-1] == newline )
-;  ** Relies on 'newline' being placed before text_top. **
+;;; Find start of line.  Decrement SI until [SI-1] == newline
+;;; Note: b[textbuf-1] == 10
 find_sol:
-	mov al,newline
+	mov al, newline
 l1:	dec si
-	cmp al,b[si]
+	cmp al, b[si]
 	jne l1
 	inc si
 	ret
 
 
-; Make sure X & Y dimension parameters are within limits, and set
-; certain derived values, such as maxX and maxY.
-; Uses SI, AX, BX
+;;; Make sure X & Y dimension parameters are within limits, and set
+;;; certain derived values, such as maxX and maxY.
+;;; Uses SI, AX, BX
 set_dimensions:
-	mov si,offset yoff
-	mov al,2		; minimum size for Y
+	mov si, offset yoff
+	mov al, 2		; minimum size for Y
 	call set_one_dim	; check & set Y dimension paramters
 	dec maxY		; maxY should really be disp_lines-2
 	dec si
-	mov al,20		; minimum size for X
-	;jmp set_one_dim	; check & set Y dimension paramters
+	mov al, 20		; minimum size for X
+	;; jmp set_one_dim	; check & set Y dimension paramters
 
 
-; On entry:
-;	SI = pointer to dimention structure
-;	AL = minimum size for window in this dimension
-; Comments are written as if we only run this on X dimensions, but they
-; anaologously apply to Y dimensions.
-; Structure members:
-;	d_offs = xoff or yoff
-;	d_cols = disp_cols or disp_lines
-;	d_max = maxX or maxY
-;	d_wid = scrwid or scrhgt
+;;; On entry:
+;;;	SI = pointer to dimention structure
+;;;	AL = minimum size for window in this dimension
+;;; Comments are written as if we only run this on X dimensions, but they
+;;; anaologously apply to Y dimensions.
+;;; Structure members:
+;;;	d_offs = xoff or yoff
+;;;	d_cols = disp_cols or disp_lines
+;;;	d_max = maxX or maxY
+;;;	d_wid = scrwid or scrhgt
 
 set_one_dim:
 	 ; if (xoff+min_size > scrwid) {xoff = scrwid-20;}
-	mov bl,d_wid
+	mov bl, d_wid
 	neg al
-	add al,bl		; al = scrwid-20
-	cmp al,d_offs
-	if b mov d_offs,al		; if unsigned AL < xoff, set xoff = AL
+	add al, bl		; al = scrwid-20
+	cmp al, d_offs
+	if b mov d_offs, al	; if unsigned AL < xoff, set xoff = AL
 	 ; disp_cols = (disp_cols ? disp_cols : scrwid)
 	 ; if (disp_cols > scrwid-xoff) {disp_cols = scrwid-xoff;}
-	mov ah,d_cols
+	mov ah, d_cols
 	test ah
-	if z mov ah,bl		; AH = (disp_cols ? disp_cols : scrwid)
-	mov bh,bl
-	sub bh,d_offs		; BH = scrwid-xoff
-	cmp ah,bh		; if (disp_cols > scrwid-xoff)
-	if a mov ah,bh		;    AH = scrwid-xoff
-	mov d_cols,ah
+	if z mov ah, bl		; AH = (disp_cols ? disp_cols : scrwid)
+	mov bh, bl
+	sub bh, d_offs		; BH = scrwid-xoff
+	cmp ah, bh		; if (disp_cols > scrwid-xoff)
+	if a mov ah, bh		;    AH = scrwid-xoff
+	mov d_cols, ah
 	dec ah
-	mov d_max,ah		; maxX = disp_cols - 1
+	mov d_max, ah		; maxX = disp_cols - 1
 	ret
 
 do_abort:
-	mov al,msgaborted		; "^G"
-	;jmp msg_error
+	mov al, msgaborted	; "^G"
+	;; jmp msg_error
 
 msg_error:
-	call disp_status_msg		; Display error message
-	;jmp jmp_error
+	call disp_status_msg	; Display error message
+	;; jmp jmp_error
 
-; Jump to "jmp_error" to resume execution at point after last
-;   call to "catch_error".
+
+;;; Transfer control to the previous caller of catch_error.
+;;;
 jmp_error:
 	call beep
 jmp_catch:
-	mov sp,err_sp
+	mov sp, error_sp
 	pop ax
 	stc
 	jmps catch_continue
 
-; Catch errors that occur.  Stores SP and return address, and returns
-; with carry clear.  Subsequent jumps to jmp_error (at or below the funciton
-; nesting level of the call to catch_error) will cause execution to
-; resume as if catch_error had returned carry.
-;    Errors will remain "caught" until a RET is executed by the function
-; which called catch_error, or until an error is caught. !!?
-; !!?  (a RET with or without an error having occurred).
-;   Currently, calling catch_error will totally wipe out a previous catch_error
-; (they can't be nested).
-;   Uses: AX
-; On entry:
-;       ** Functions that are going to return should call catch_error
-;	** before pushing any values; the return address should be the
-;	** last item on the stack when the "call catch_error" is executed.
-; On return:
-;	If C is NOT set, return address has been saved.
-;	If C IS set, error has occurred and all registers are corrupted.
+
+;;; Catch errors that occur.  When initially called, it returns with C clear,
+;;; and a subsequent call to jmp_error will cause it to return *again* with C
+;;; set.  The "catch" remains active until the caller of catch_error returns.
+;;;
+;;; ** The function that calls catch_error must call it before pushing any
+;;; values so that the caller's return addr will be on the top of the stack.
+;;;
+;;; On return:
+;;;	If C is NOT set, return address has been saved.
+;;;	If C IS set, error has occurred and all registers are corrupted.
+;;;
 catch_error:
 	clc
 	pop ax		; AX = continuation address
-	push err_sp	; Save err_sp of previous catch_error...
-catch_continue:		; Continue at AX (old err_sp is on stack)
+	push error_sp	; Save error_sp of previous catch_error...
+catch_continue:		; Continue at AX (old error_sp is on stack)
 	push ax		; Leave the continuation address on the stack
-	mov err_sp,sp	; And record the continuation stack pointer
-	call ax		; Continue after the original call to catch_error
+	mov error_sp, sp	; And record the continuation stack pointer
+	call ax		; continue at caller with [OLDSP, AX, HERE] on stack
 	pop ax		; The calling function is returning...pop continuation
-	pop err_sp
-	ret
+	pop error_sp
+	ret		; return to caller's caller

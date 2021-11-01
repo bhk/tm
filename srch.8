@@ -1,338 +1,321 @@
-; srch.8 : code for incremental search/replace
-;
-; do_search clears the search string and enters the following loop:
-;  srch_loop:
-;	if (text at DX matches srchstr) jmp srch_found
-;	advance DX
-;	if (DX is still inside the text buffer) jmp srch_loop
-;	else jmp srch_error
-;
-; srch_found and srch_error select appropriate messages and jump to
-; srch_input, which takes one of the following actions:
-;    1) if a printable character is typed: push state, add character to
-;	 srchstr[] and jump to top of srch_loop
-;    2) if BackSpace is typed: pop state and jump to srch_input again.
-;    3) if ESC or Ctrl-G is typed: quit [pop all state values & exit]
-;    4) if an non-special character is typed: ungetkey() and quit
-;
-; "State" of the search consists of:    srchend (SI), and point (DI)
+;;; srch.8 : incremental search/replace
+;;;
+;;; b[srchbuf...srchbufend-1] holds the search string
+;;; srcbufmax is the maximum value for srchbufend
 
 
-; isupper: set C if #1 is in range 'A'...'Z';  changes contents of #1
+;;; Set C if #1 is in range 'A'...'Z' ;  changes contents of #1
 isupper MACRO
-	sub #1,'A'
-	cmp #1,'Z'-'A'+1
+	sub #1, 'A'
+	cmp #1, 'Z'-'A'+1
 #em
 
-srch_cursor	equ	219		; Solid block
+srch_cursor	equ	219	; Solid block
 srch_fwd	equ	1	; add 1 to di
 srch_back	equ	255	; subtract 1 from di
 
-CSMASK		equ	0FF		; AND al,0FF	leaves al unchanged.
-NONCSMASK	equ	(not 32)	; AND al,0DF	converts LC to UC
-
-; srch_input benefits from this property:  msgrsrch AND 3 == msgrplc
-;					   msgsrch AND 3 == msgrplc
-;				Also:	   msgedit == 3
+CSMASK		equ	0FF		; AND al, 0FF	leaves al unchanged.
+NONCSMASK	equ	(not 32)	; AND al, 0DF	converts LC to UC
 
 
-; do_search is entered when incremental search is first started, and
-; possibly later to terminate recording of a replacement macro.
-;
-; Typically, it starts incremental search mode, but it is also used to find the
-; next match once in search mode, or to stop macro recording when in search/replace mode.
-;
-; srchmode is one value that identifies how the searchkey should be interpreted.
-;          3 => already in search/replace     (recorded macro)
-;          7 => srch/replace ALL occurrences
-;
-
+;;; Clear the search string and enter search mode, *or* (when recording
+;;; a replacement macro) terminate recording.
+;;;
+;;; srchmode identifies how the searchkey should be interpreted:
+;;;	3 => already in search/replace     (recorded macro)
+;;;	7 => srch/replace ALL occurrences
+;;;
 do_rsearch:		; set AL = FF and continue to do_search
 	db 0B8h						; "MOV AX, ..."
 do_fsearch:		; set AL = 01 and continue to do_search
-	mov al,srch_fwd xor 0b0h xor srch_back		; "db 0b0h, 04eh"
-	xor al,(srch_back xor 0b0h)
-do_search:
-	mov ah,NONCSMASK
-	test srchmode,ah		; if >0, we must be recording a macro
-	if nz jmp do_makemx		; start/stop macro
-	mov srchdir_n_mask,ax		; srchdir=AL ; srchcsmask = NONCSMASK
-	mov si,srchstr
-	call srch_setsrchend		; srchend=srchstr; DX=point; CX=srchstr
-; Main search loop:
-;   DX = start of string in text
-;   CX = srchend
+	mov al, srch_fwd xor 0b0h xor srch_back		; "db 0b0h, 04eh"
+	xor al, (srch_back xor 0b0h)
+	mov ah, NONCSMASK
+	test srchmode, ah	; if >0, we must be recording a macro
+	if nz jmp do_makemx	; start/stop macro
+	mov srchdir_n_mask, ax	; srchdir=AL ; srchcsmask = NONCSMASK
+	mov si, srchbuf
+	call srch_setsrchend	; srchend=srchbuf; DX=point; CX=srchbuf
+	;; Main search loop:
+	;;	always: DX = start of string in text
+	;;	always: CX = srchend
+	;;	if (text at DX matches srchbuf): srch_found
+	;;	advance DX
+	;;	if out of range: srch_error
+	;;
 srch_loop:
-	mov di,dx			; DI = srchpos
-	mov si,srchstr			; SI = srchstr
-; Inner loop:
-;   SI = position being matched in srchstr
-;   DI = position being matched in text
-l1:	cmp si,cx			; cmp si,srchend.  If at end of string,
-	je srch_found			;    get user input.
-	lodsb				; AL = [SI++]
-	scasb				; cmp al,b[di++]
+	mov di, dx		; DI = srchpos
+	mov si, srchbuf		; SI = srchbuf
+	;; Inner loop:
+	;;   SI = position being matched in srchbuf
+	;;   DI = position being matched in text
+l1:	cmp si, cx		; cmp si, srchend.  If at end of string,
+	je srch_found		;    get user input.
+	lodsb			; AL = [SI++]
+	scasb			; cmp al, b[di++]
 	je l1
-	and al,srchcsmask		; If Non-CS, convert AL to UC
-	; This code assumes that for non-case sensitive searches,
-	; all search characters are lower case.
-	cmp al,b[di-1]			; now see if b[di] is the same
+	and al, srchcsmask	; If Non-CS, convert AL to UC
+	;; This code assumes that for non-case sensitive searches,
+	;; all search characters are lower case.
+	cmp al, b[di-1]		; now see if b[di] is the same
 	jne >l2			; If not, then definitely no match.
-	isupper al			; Set C if AL is upper case letter
-	jc l1				; If a letter =>  this was a match
-	; srchstr[] and srchpos[] do not match... advance srchpos
-l2:	mov al,srchdir
+	isupper al		; Set C if AL is upper case letter
+	jc l1			; If a letter =>  this was a match
+	;; srchbuf[] and srchpos[] do not match... advance srchpos
+l2:	mov al, srchdir
 srch_next_al:
 	cbw
-	add dx,ax
-	cmp dx,text_top
-	jb srch_error			; DI < text_top  =>  out of range
-	cmp dx,srchtextmax
+	add dx, ax
+	cmp dx, textbuf
+	jb srch_error		; DI < textbuf  =>  out of range
+	cmp dx, srchtextmax
 srch_jbe_srch_loop:
-	jbe srch_loop			; DI <= srchtextmax  => okay
-	;jmp srch_error
+	jbe srch_loop		; DI <= srchtextmax  => okay
+	;; jmp srch_error
 
-; End of text reached: return to previous matching location
-; On entry:  CX=srchend
+;;; End of text reached: return to previous matching location
+;;; On entry: CX=srchend
 srch_error:
-	mov di,point			; Set DI & SI to values they had
-	mov si,cx			; before this failed search
-	mov cx,srchstr			; srch_quit needs CX=srchstr
-	mov al,7			; AL=7 => srch_quit restores old point
-	test srchmode,al
-	jnz srch_quit			; If in replace mode, quit.
-	;;; call beep
-	mov al,msgnotfound		; This indicates that search failed.
+	mov di, point		; Set DI & SI to values they had
+	mov si, cx		; before this failed search
+	mov cx, srchbuf		; srch_quit needs CX=srchbuf
+	mov al, 7		; AL=7 => srch_quit restores old point
+	test srchmode, al
+	jnz srch_quit		; If in replace mode, quit.
+	;; call beep
+	mov al, msgnotfound	; This indicates that search failed.
 	jmps srch_input
 
-; Backspace (executed from srch_input)
-; On entry:  SI = srchend ; CX = srchstr
+;;; Backspace (executed from srch_input)
+;;; On entry:  SI = srchend ; CX = srchbuf
 srch_bs:
-	cmp si,cx		; srchstr == srchend ?
+	cmp si, cx		; srchbuf == srchend ?
 	je srch_getchar		; If so, do nothing.
-	add sp,6		; remove value describing current position
+	add sp, 6		; remove value describing current position
 	pop wnd_ptr, di, si	; restore values describing previous position
 	call srch_setsrchend	; set srchend, relcalculate srchtextmax
-	;jmp srch_found		; fall through...
+	;; jmp srch_found		; fall through...
 
-; String found: set BP to appropriate message
+;;; String found: set BP to appropriate message
 srch_found:
-	mov al,srchdir		; AL = 1 or 255
-	add al,msgrsrch+1	; AL = msgrsrch or msgsrch (!= msgnotfound)
-	;jmp srch_input		; fall through
+	mov al, srchdir		; AL = 1 or 255
+	add al, msgrsrch+1	; AL = msgrsrch or msgsrch (!= msgnotfound)
+	;; jmp srch_input	; fall through
 
-;  Get intput from user: ^S, ^G, Esc, Backspace, or another character
-; On entry:
-;	DI = point
-;	SI = srchend
-;	CX = srchend (found) or srchstr (error)
-;	AL = prompt message (AL=msgnotfound indicates string not found)
+;;; Get input from user & select action
+;;; On entry:
+;;;	DI = point
+;;;	SI = srchend
+;;;	CX = srchend (found) or srchbuf (error)
+;;;	AL = prompt message (AL=msgnotfound indicates string not found)
+;;;
 srch_input:
-	or al,srchmode		; If srchmode==3, AL = msgrplc
+	or al, srchmode		; If srchmode==3, AL = msgrplc
 	cbw
-	mov bp,ax		; BP = msgsrch,msgrsrch,msgnotfound,msgrplc
+	mov bp, ax		; BP = msgsrch, msgrsrch, msgnotfound, msgrplc
 	call mov_point_di
-	push si,di		; save these before disp_page destroys them
+	push si, di		; save these before disp_page destroys them
 	call chk_point		; calculate & set cursor position
 	push wnd_ptr		; stack contains:  SI, DI, wnd_ptr
-	mov ax,bp
+	mov ax, bp
 srch_dispmsg:
 	call disp_status_msg	; display "Search: "
-	call srch_dispstr	; show string AND set:  SI=srchend, CX=srchstr
-	cmp bp,msgrplc		; test srchmode
+	call srch_dispstr	; show string AND set:  SI=srchend, CX=srchbuf
+	cmp bp, msgrplc		; test srchmode
 	if ae jmp rplc_query
 srch_getchar:
 	call dispatch_key
-	dvect 8, srch_bs		; Backspace
-	dvect 127, srch_rplc		; C-Backspace
-	dvect 17,srch_quote		; Ctrl-Q
-	dvect 9,srch_literal		; Tab
-	dvect 7,srch_quit
-	dvect 27,srch_quit
-	dvect 18,srch_rsrch		; Ctrl-R
-	dvect 19,srch_fsrch		; Ctrl-S
+	dvect 8, srch_bs	; Backspace
+	dvect 127, srch_rplc	; C-Backspace
+	dvect 17, srch_quote	; Ctrl-Q
+	dvect 9, srch_literal	; Tab
+	dvect 7, srch_quit
+	dvect 27, srch_quit
+	dvect 18, srch_rsrch	; Ctrl-R
+	dvect 19, srch_fsrch	; Ctrl-S
 	db 0
 	jge srch_literal	; if (al >= 32) goto srch_literal
 	ungetkey al		; Unknown Ctrl-char or extended code
-	;jmps srch_quit		;  ungetkey() and quit search
+	;; jmps srch_quit	;  ungetkey() and quit search
 
-; -- If jcc distances are stretched, move srch_quit to end of rplc_query,
-; -- make the above jmps a jmp, and jcc to that jmp.
-; Ctrl-G or Escape
+	;; -- If jcc distances are stretched, move srch_quit to end of rplc_query,
+	;; -- make the above jmps a jmp, and jcc to that jmp.
+	;; Ctrl-G or Escape
 srch_quit:
-	sub si,cx
-	if nz mov srcholdlen,si		; save current string length
+	sub si, cx
+	if nz mov srcholdlen, si	; save current string length
 l1:	pop bx, di, si
-	cmp si,cx			; si==srchstr ?
-	jne l1				; pop state while not
-	cmp al,7
+	cmp si, cx		; si==srchbuf ?
+	jne l1			; pop state while not
+	cmp al, 7
 	jne >l2
-	call mov_point_di		; If Ctrl-G,
-	mov wnd_ptr,bx			;    restore point & wnd_ptr
-l2:	mov srchmode,0
+	call mov_point_di	; If Ctrl-G,
+	mov wnd_ptr, bx		;    restore point & wnd_ptr
+l2:	mov srchmode, 0
 	call chk_clr_stat
-	jmp chk_point			; Return from do_search.
+	jmp chk_point		; Return from do_search.
 
 srch_rplc:
-	cmp cx,si		; string length == 0 ?
+	cmp cx, si		; string length == 0 ?
 	jz srch_getchar
 	jmps rplc_play
 
-; Get a key -- any key -- and add it to srchstr.
+;;; Get a key -- any key -- and add it to srchbuf.
+;;;
 srch_quote:
 	call getkey
-	;jmps srch_literal
+	;; jmps srch_literal
 
-; Add char to srchstr[] and resume search
+;;; Add char to srchbuf[] and resume search
+;;;
 srch_literal:
-	cmp si,srch_max
+	cmp si, srchbufmax
 	jb >l1
 	call beep
-	mov al,msgfull
+	mov al, msgfull
 	jmp srch_dispmsg	; search buffer full
-l1:	mov b[si],al		; add character to srchstr[]
+l1:	mov b[si], al		; add character to srchbuf[]
 	isupper al		; if upper case, make search CASE-SENSITIVE
-	if c mov srchcsmask,CSMASK
-	mov bx,1
-; Push state; lengthen string by BX; and search again.
+	if c mov srchcsmask, CSMASK
+	mov bx, 1
+	;; Push state; lengthen string by BX; and search again.
 srch_more:
-	add si,bx
+	add si, bx
 	call srch_setsrchend	; set srchend, srchtextmax, DX
-	add dx,bx		; now DX = point - len(old srchstr)
-	; Make a comparison s.t. BE => LOOP (was found); A => ERROR (was error)
-	cmp bp,msgnotfound-1	; shortcut to error if string wasn't found
+	add dx, bx		; now DX = point - len(old srchbuf)
+	;; Make a comparison s.t. BE => LOOP (was found); A => ERROR (was error)
+	cmp bp, msgnotfound-1	; shortcut to error if string wasn't found
 	jmp srch_jbe_srch_loop	; jbe srch_loop, else jmp srch_error
 
 rplc_quit:
 	jmp srch_quit
 
-; Ctrl-S/R : search for next occurrence, recall old string, or wrap around
-;	The following tricky code depends on the keys that select this option.
-;	For a more flexible solution, use the "mov ax,{mov al,x}; xor y" code.
+;;; Ctrl-S/R : search for next occurrence, recall old string, or wrap around
+;;;	The following tricky code depends on the keys that select this option.
+;;;	For a more flexible solution, use the "mov ax, {mov al, x}; xor y" code.
 srch_rsrch:
 	dec ax			; for "dec al"; convert the 18 in AL to 17
 srch_fsrch:
 	sub al, 18		; convert the 19 in AL to 1 (or 17 to -1)
-l1:	mov srchdir,al			; in case direction has changed
-	cmp si,cx			; cmp si,srchstr
+l1:	mov srchdir, al		; in case direction has changed
+	cmp si, cx		; cmp si, srchbuf
 	jnz srch_next
-	mov bx,srcholdlen
+	mov bx, srcholdlen
 	test bx
-	jnz srch_more			; store SI in srchend & search
+	jnz srch_more		; store SI in srchend & search
 srch_next:
 	clear bx
-	; Recalculate DX, advance DX by len(srchstr)-BX, and return to search
+	;; Recalculate DX, advance DX by len(srchbuf)-BX, and return to search
 srch_again:
-	pop ax,dx,si			; SI = old srchend; DX = point
-	call srch_settextmax		; set DX & srchtextmax; AX=len(srchstr)
-	sub ax,bx			; AX = len(srchstr) - (# chars deleted)
-	if l clear ax			; if AX < 0,  AX=0
-	mov bl,srchdir
-	cmp bp,msgnotfound		; If it wasn't found ... wrap around.
+	pop ax, dx, si		; SI = old srchend; DX = point
+	call srch_settextmax	; set DX & srchtextmax; AX=len(srchbuf)
+	sub ax, bx		; AX = len(srchbuf) - (# chars deleted)
+	if l clear ax		; if AX < 0, AX=0
+	mov bl, srchdir
+	cmp bp, msgnotfound	; If it wasn't found ... wrap around.
 	jne >l1
-	mov dx,srchtextmax		; DX = srchtextmax
-	cmp bl,srch_fwd			; If srchdir==FWD,
-	if e mov dx,text_top		;     DX = text_top
-	mov al,0			; Re-enter loop exactly at DX
-l1:	mul bl				; AX = AL * srchdir
-	jmp srch_next_al		; add AL to DX and find next occurrence
-	
-; Delete occurrence, then record/play macro
-rplc_play:
-	push text_btm
-	sub si,cx
-	call rplc_delete
-	mov si,mx_play		; call mx_play with AX=0
+	mov dx, srchtextmax	; DX = srchtextmax
+	cmp bl, srch_fwd	; If srchdir==FWD,
+	if e mov dx, textbuf	;     DX = textbuf
+	mov al, 0		; Re-enter loop exactly at DX
+l1:	mul bl			; AX = AL * srchdir
+	jmp srch_next_al	; add AL to DX and find next occurrence
 
-	mov al,3
-	cmp al,srchmode
+;;; Delete occurrence, then record/play macro
+;;;
+rplc_play:
+	push textbufend
+	sub si, cx
+	call rplc_delete
+	mov si, mx_play		; call mx_play with AX=0
+
+	mov al, 3
+	cmp al, srchmode
 	jbe >l1                 ; we're already replacing
-	mov srchmode,al         ; srchmode=3 indicating we're replacing now
+	mov srchmode, al        ; srchmode=3 indicating we're replacing now
 	call disp_status_msg
 
-;	cmp bp,msgrplc	; BP is either "...Search: " or "Replace"
-;	je >l1
-;	mov al,3		; msgedit == 3
-;	mov srchmode,al		; srchmode=3 ; in search & replace now
-;	call disp_status_msg
+	;; cmp bp, msgrplc	; BP is either "...Search: " or "Replace"
+	;; je >l1
+	;; mov al, 3		; msgedit == 3
+	;; mov srchmode, al	; srchmode=3 ; in search & replace now
+	;; call disp_status_msg
 
-	mov si,mx_record	; call mx_record with AX=0
-l1:	mov al,18		; Ctrl-R represents the search/replace macro
+	mov si, mx_record	; call mx_record with AX=0
+l1:	mov al, 18		; Ctrl-R represents the search/replace macro
 	call si			; Record or Play macro "0"
 	pop bx
-	sub bx,text_btm		; BX = # of chars. deleted
+	sub bx, textbufend	; BX = # of chars. deleted
 	jmp srch_again
 
-; Play macro and search for next occurrence.
-;	push text_btm
-;	sub si,cx			; SI = len(srchstr)
-;	call rplc_delete
-;	call mx_play
-;	jmp rplc_resume		; pop text_btm, calculate BX, and resume search
-
 rplc_all:
-	mov srchmode,7
-	;jmp rplc_query
-; After text is found after a macro is recorded, rplc_query is called.
-; On entry:  SI=srchend; CX=srchstr
+	mov srchmode, 7
+	;; jmp rplc_query
+
+;;; After text is found after a macro is recorded, rplc_query is called.
+;;; On entry:  SI=srchend; CX=srchbuf
+;;;
 rplc_query:
-	cmp srchmode,4
-	jae rplc_play			; go if in "Replace ALL" mode
+	cmp srchmode, 4
+	jae rplc_play		; go if in "Replace ALL" mode
 	call dispatch_key
 	db 0
 	jb rplc_quit
-	or al,32
+	or al, 32
 	call dispatch_al
-	dvect 'q', rplc_quit		; Warning: This was once out-of-range!
-	dvect 'n', srch_next		; Out of range dvect's aren't flagged
-	dvect 'y', rplc_play		; at assembly-time!  Double-check them!
+	dvect 'q', rplc_quit	; Warning: This was once out-of-range!
+	dvect 'n', srch_next	; Out of range dvect's aren't flagged
+	dvect 'y', rplc_play	; at assembly-time!  Double-check them!
 	dvect 'a', rplc_all
 	db 0
-	je rplc_play			; spacebar => replace
+	je rplc_play		; spacebar => replace
 	jmp rplc_query
 
-; Delete SI chars preceding point
+;;; Delete SI chars preceding point
+;;;
 rplc_delete:
-	mov di,point
+	mov di, point
 	push di
 l1:	call lft1		; a Carry return cond should be impossible...
 	dec si
 	jnz l1
 	pop si
 	jmp delete_region_redisp	; delete di to si & redisplay
-	;call ... ret
+	;; jmp srch_dispstr
 
-; Display srchstr[] at BX, display "search cursor", and set real cursor	
-;  On exit:  SI = srchend;  CX = srchstr
+;;; Display srchbuf[] at BX, display "search cursor", and set real cursor
+;;; On exit:  SI = srchend;  CX = srchbuf
+;;;
 srch_dispstr:
 	inc bx			; for "inc bl";  advance to next column
-	mov cx,srchstr
-	mov si,cx		; Display srchstr
+	mov cx, srchbuf
+	mov si, cx		; Display srchbuf
 	jmp >l2
 l1:	lodsb
 	call disp_char
-l2:	cmp si,srchend
+l2:	cmp si, srchend
 	jne l1
-	mov al,srch_cursor
+	mov al, srch_cursor
 	call disp_char		; Display "search cursor"
-	jmp set_the_cursor	; Put the REAL cursor in the text area
+	jmp set_text_cursor	; Put the BIOS cursor in the text area
 
-; Set srchend, srchtextmax, and DX
-;    On entry:	SI = new srchend value
-;		point = something valid
-;     On exit:	SI unchanged
-;		DX = point - len(srchstr)
-;		AX = len(srchstr)
-;		CX = srchend
+;;; Set srchend, srchtextmax, and DX
+;;;    On entry:	SI = new srchend value
+;;;		point = something valid
+;;;     On exit:	SI unchanged
+;;;		DX = point - len(srchbuf)
+;;;		AX = len(srchbuf)
+;;;		CX = srchend
+;;;
 srch_setsrchend:
-	mov dx,point
-	mov srchend,si
+	mov dx, point
+	mov srchend, si
 srch_settextmax:
-	mov ax,si
-	sub ax,srchstr		; AX = len(srchstr)
-	sub dx,ax		; DX = srchpos
-	mov cx,text_btm
-	sub cx,ax		; CX = text_btm - len(srchstr)
-	mov srchtextmax,cx
-	mov cx,si
+	mov ax, si
+	sub ax, srchbuf		; AX = len(srchbuf)
+	sub dx, ax		; DX = srchpos
+	mov cx, textbufend
+	sub cx, ax		; CX = textbufend - len(srchbuf)
+	mov srchtextmax, cx
+	mov cx, si
 	ret

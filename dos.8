@@ -1,282 +1,276 @@
-; dos.8   :   MS-DOS file-related routines.
+;;; dos.8 : MS-DOS file-related routines.
 
 public load_file, save_file, remove_CRs, find_file, save_as, save_and_find
 
 find_file:
 	call filetest
-	and al,b[di]		; AL = filename && unsaved
+	and al, b[di]		; AL = filename && unsaved
 	jz load_named		; If no name, or no unsaved changes, load file
-	mov si,LOADmenu		; Else ask "Lose changes?"
+	mov si, LOADmenu	; Else ask "Lose changes?"
 	jmp show_menu
 
 save_and_find:
 	call save_file
-	;jmp load_named
+	;; jmp load_named
 
 load_named:
-	mov dl,msgloadfile
+	mov dl, msgloadfile
 	call edit_name
-	mov ax,reset_load
-	jmp before_catch		; Restart at reset_load
+	mov ax, reset_load
+	jmp before_catch	; Restart at reset_load
 
 
-; Load file into the text buffer.  This should ONLY be called from one
-; place: in the initialization code, before editing variables are intialized.
-; catch_error non-reentrancy is not a problem as long as load_file is called
-; before the initialization code performs the initial catch_error.  When
-; "Load" is selected by the user, find_file should reset the stack and jump
-; to the point in the initialization code calls load_file.
-; load_file should always return whence it was called; it can't jump to
-; jmp_error.
-; On entry:
-;    ARGBUF[...] holds file name (zero-terminated)
-; On return:
-;    All registers undefined.
+;;; Load file into the text buffer.  This may leave editing-related variables
+;;; in an invalid state, so the caller must ensure that these will be
+;;; re-initialized.
+;;;
+;;; On entry:
+;;;    ARGBUF[...] holds file name (zero-terminated)
+;;; On return:
+;;;    All registers undefined.
+;;;
 load_file:
 	call filetest		; DX = ARGBUF, DI = &unsaved, Z = (b[DX] == 0)
-	;mov b[di],0		; for "mov unsaved,0"
-	mov text_btm,text_top	; Leave buffer in a known state
+	;;mov b[di], 0		; for "mov unsaved, 0"
+	mov textbufend, textbuf	; Leave buffer in a known state
 	jz ret			; Return if no filename
-	; open file
-	mov ax,03d00h		; open file named at DS:DX, AL=0 => read only
+	;; open file
+	mov ax, 03d00h		; open file named at DS:DX, AL=0 => read only
 	int 021h
-	jc load_chkerr		; error, or file not found
-	xchg ax,bx		; for "mov bx,ax";  BX = file handle
+	jc >f2			; error, or file not found
+	xchg ax, bx		; for "mov bx, ax";  BX = file handle
 	call catch_error
-	jc load_error
-	mov cx,text_limit
+	jc >f3
+	mov cx, textbufmax
 	inc cx			; ask for one too many bytes (uses slop)
-	call set_size		; DX = start of buffer; CX = max # of bytes + 1
-	mov ah,03Fh		; code for Read from File function
+	call get_size		; DX = start of buffer; CX = max # of bytes + 1
+	mov ah, 03Fh		; code for Read from File function
 	call dosint		; DOS call (goto load_error if error)
-	cmp ax,cx		; if it read one too many...
-	jne >l2			;   file is too big
-	mov b[si],0		; (SI=ARGBUF)
-	mov al,msgfilebig
+	cmp ax, cx		; if it read one too many...
+	jne >f1			;   file is too big
+	mov b[si], 0		; (SI=ARGBUF)
+	mov al, msgfilebig
 	jmps l_disp_status_msg
-l2:	add ax,dx		; AX = no. of bytes + text_top
-	mov text_btm,ax		; set end of text area
+f1:	add ax, dx		; AX = no. of bytes + textbuf
+	mov textbufend, ax	; set end of text area
 	call fclose_bx
 	test verbatim
 	if z call remove_CRs	; remove CR's if NOT verbatim
-	cmp b[msg0-1],'y'
+	cmp b[msg0-1], 'y'
 	jz ret			; return now if being called at startup
-	mov al,msgloaded
+	mov al, msgloaded
 	jmps l_disp_status_msg	; say:  Loaded "filename"
 
-
-; Check error after open returned Carry
-load_chkerr:
-	cmp al,2		; 2 => file not found
-;;	mov al,msgnewfile	; msgnewfile == 2
+f2:	;;  Distinguish error from file-not-found
+	cmp al, 2		; 2 => file not found
+	;; mov al, msgnewfile	; msgnewfile == 2
 	jz l_disp_status_msg
-load_error:
-	mov al,msgreaderror
-; Abort with message AL
+f3:	;; Error
+	mov al, msgreaderror
+	;; Abort with message AL
 l_disp_status_msg:
-	jmp disp_status_msg		; Display message and return
+	jmp disp_status_msg	; Display message and return
 
 
-; Small reused segment of code...
-set_range:
-	mov cx,text_btm
-set_size:
-	mov dx,text_top
-	sub cx,dx
+;;; Set DX = textbuf, CX = size of text
+;;;
+get_range:
+	mov cx, textbufend
+get_size:
+	mov dx, textbuf
+	sub cx, dx
 	ret
 
-; fclose_bx, write_bytes, dosint: On error, they jmp to jmp_catch
+;;; On error, jumps to jmp_catch
 fclose_bx:
-	mov ah,03Eh
+	mov ah, 03Eh
 	jmps dosint
 
+;;; On error, jumps to jmp_catch
 write_text:
 	test verbatim
 	jz add_CRs
-	call set_range
-	;jmp write_bytes			;     save data DIRECTLY
+	call get_range
+	;; jmp write_bytes	; save data DIRECTLY
 
-; Write CX bytes at DX to file handle BX.
-; Modifies AH.
+;;; Write CX bytes at DX to file handle BX.
+;;; On error, jumps to jmp_catch
 write_bytes:
-	mov ah,040h
-	;jmp dosint
+	mov ah, 040h
+	;; jmp dosint
 
-; Execute int 021h and handle error.
+;;; Execute int 021h and handle error.
+;;; On error, jumps to jmp_catch
 dosint:	int 021h
 	jnc ret
 	jmp jmp_catch
 
 
-;
-;  save_as and save_file
-;
-;  save_as asks for file name first
+;;; Ask for file name and save file
+;;;
 save_as:
-	mov dl,msgsavefile
+	mov dl, msgsavefile
 	call edit_name
-	;jmp save_file
+	;; jmp save_file
 
-; save file to disk
-;    If (!verbatim) then output all LF's as CR/LF's, using the following
-; loop:
-;	1. Output all bytes up to the next LF.
-;	   (If no LF, output rest of the text and return).
-;	2. Output CR/LF and advance past the LF.
-;	3. goto 1
+;;; Save file to disk
+;;;    If (!verbatim) then output all LF's as CR/LF's, using the following
+;;; loop:
+;;;	1. Output all bytes up to the next LF.
+;;;	   (If no LF, output rest of the text and return).
+;;;	2. Output CR/LF and advance past the LF.
+;;;	3. goto 1
+;;;
 save_file:
 	call filetest
 	jz save_as
 	call catch_error
-	jc save_failure
-	mov ah,03Ch			; open file named at DX
-	mov cl,0
+	jc >s2
+	mov ah, 03Ch		; open file named at DX
+	mov cl, 0
 	call dosint
-	xchg ax,bx			; for "mov bx,ax";  BX = file handle
+	xchg ax, bx		; for "mov bx, ax";  BX = file handle
 	call write_text
 	call fclose_bx
-	mov unsaved,0
-	mov al,msgfilesaved
+	mov unsaved, 0
+	mov al, msgfilesaved
 s1:	jmp l_disp_status_msg
-save_failure:
-	call disp_page			; fix screen after DOS "Abort...?" msg
-	mov al,msgerrorsaving		; say "Error saving file"
+s2:	call disp_page		; fix screen after DOS "Abort...?" msg
+	mov al, msgerrorsaving	; say "Error saving file"
 	jmp s1
 
 
-; Expand all LF's to CR/LF's, save file, then remove all CR's.
-; Copies text from [text_top,text_btm] to [new_top,text_limit],
-; then back again.
-;   Watch for error conditions within areas where ES != video buffer
+;;; Expand all LF's to CR/LF's, save file, then remove all CR's.
+;;; Copies text from [textbuf, textbufend] to [new_top, textbufmax],
+;;; then back again.
+;;; Watch for error conditions within areas where ES != video buffer
+;;;
 add_CRs:
-	mov di,text_limit
-	mov si,text_btm
-	mov b[si],0	; Prevent the slop byte from causing insertion of a CR
+	mov di, textbufmax
+	mov si, textbufend
+	mov b[si], 0	; Prevent the slop byte from causing insertion of a CR
 	std		; perform move, moving one extra byte (uses slop)
-l1:	cmp si,text_top
+a1:	cmp si, textbuf
 	jb >l9			; done
 	lodsb			; al = *[si--]
-l2:	stosb			; *[di--] = al
-	cmp al,10
-	jnz l1
-	mov al,13
-	cmp di,si
-	jne l2			; di > si : still enough room for another CR
-	jmp l1			; not enough room; just copy bytes...
+a2:	stosb			; *[di--] = al
+	cmp al, 10
+	jnz a1
+	mov al, 13
+	cmp di, si
+	jne a2			; di > si : still enough room for another CR
+	jmp a1			; not enough room; just copy bytes...
 l9:	cld
 	inc di
-	mov dx,di		; DX = start of new copy
-	mov cx,text_limit
-	sub cx,dx		; CX = number of bytes
+	mov dx, di		; DX = start of new copy
+	mov cx, textbufmax
+	sub cx, dx		; CX = number of bytes
 	call write_bytes
-; call remove_CRs
-; remove_new_crs  : Copies text from [di,text_limit] to [text_top,text_btm]
+	;; call remove_CRs
+	;; remove_new_crs  : Copies text from [di, textbufmax] to [textbuf, textbufend]
 	inc si
-	xchg si,di		; now SI = new copy, DI = text_top
-	;jmp remove_loop	; fall through
+	xchg si, di		; now SI = new copy, DI = textbuf
+	;; jmp remove_loop	; fall through
 
-; remove_loop:  while removing CR's, move CX bytes from DS:SI to ES:DI.
+	;; remove_loop:  while removing CR's, move CX bytes from DS:SI to ES:DI.
 remove_loop:
 	jcxz >r9
 r1:	lodsb
-	cmp al,13
+	cmp al, 13
 	if nz stosb
 	loop r1
-r9:	mov text_btm,di
+r9:	mov textbufend, di
 	ret
 
 remove_CRs:
-	call set_range		; CX = size, DX = text_top
-	mov di,dx
-	mov si,di
+	call get_range		; CX = size, DX = textbuf
+	mov di, dx
+	mov si, di
 	jmp remove_loop
-	;call remove_loop
-	;ret
+	;; jmp remove_loop
 
 edit_name:
-	mov bp,ARGBUF
-	mov si,bp
-	mov di,fname_buf
+	mov bp, ARGBUF
+	mov si, bp
+	mov di, fnamebuf
 	push si
-	call en_movefname		; save copy of fname
+	call e2			; save copy of fname
 	pop si
-	cmp dl,msgloadfile
-	jnz edit_start
-edit_restart:
-	mov b[si],0			; start with new file name if loading
-edit_start:
-	mov al,dl
+	cmp dl, msgloadfile
+	jnz >e1
+e0:	mov b[si], 0		; start with new file name
+e1:	mov al, dl
 	call disp_status_msg
-	mov si,bp
-	mov al,32
+	mov si, bp
+	mov al, 32
 l0:	call disp_char
-en_disp_lpend:
-	lodsb
+l1:	lodsb
 	test al
 	jnz l0
-	mov [si],al		; add an extra zero
+	mov [si], al		; add an extra zero
 	dec si			; SI now points to first terminating zero
 	call set_cursor
-en_loop:
-	call dispatch_key
+l2:	call dispatch_key
 	dvect 27, en_esc
 	dvect 13, en_ret
 	dvect 8, en_bak
 	dvect 7, en_esc
 	db 0
-	jb en_loop
-en_lit:	mov [si],al			; Add literal character to file name
-	jmp en_disp_lpend
+	jb l2
+	mov [si], al		; Add literal character to file name
+	jmp l1
 
-en_esc:	pop ax				; return two levels...
-	dec clrstat			; clrstat=1 => clear before next getkey
-	mov si,fname_buf		; SI = fname_buf
-	mov di,bp			; DI = ARGBUF
-en_movefname:
-	mov cx,FNAME_SIZE / 2
+en_esc:	pop ax			; return two levels...
+	dec clrstat		; clrstat=1 => clear before next getkey
+	mov si, fnamebuf	; SI = fnamebuf
+	mov di, bp		; DI = ARGBUF
+e2:	;; save copy of fname
+	mov cx, FNAME_SIZE / 2
 	rep movsw
 en_ret:	ret
 
 en_bak:	dec si
-	cmp si,bp
-	jb edit_start
-	jmp edit_restart
+	cmp si, bp
+	jb e1
+	jmp e0
 
-; Initialize registers and test b[ARGBUF]
+	;; Initialize registers and test b[ARGBUF]
 filetest:
-	mov di,offset unsaved
-	mov si,ARGBUF
-	mov dx,si
-	mov al,b[si]
-	test al		; test filename
+	mov di, offset unsaved
+	mov si, ARGBUF
+	mov dx, si
+	mov al, b[si]
+	test al			; test filename
 	ret
 
 
-; dispatch_al : Dispatch AL.
-; dispatch_key : Get key code in AL and then dispatch it.
-;
-; These functions accept a sequence of "dvect" structures: (key, value)
-; pairs where key is a key code (byte) and value is PC-relative offset
-; (byte-sized) to a code address.  These are passed as "immediate" arguments
-; -- that is, they appear in memory after the call instruction -- and are
-; terminated with a "db 0".
-;
-; On exit:
-;   If AL matches a key, these functions will jump (or "return to") the
-;     address named in the matching dvect.
-;   If no match is found, the function jumps (returns to) the address
-;     following the terminating "db 0".
-
+;;; Get a keypress and then dispatch it.
+;;;
+;;; These functions accept a sequence of "dvect" structures: (key, value)
+;;; pairs where key is a key code (byte) and value is PC-relative offset
+;;; (byte-sized) to a code address.  These are passed as "immediate" arguments
+;;; -- that is, they appear in memory after the call instruction -- and are
+;;; terminated with a "db 0".
+;;;
+;;; If AL matches a key, these functions will jump (or "return to") the
+;;;     address named in the matching dvect.
+;;; If no match is found, the function jumps (returns to) the address
+;;;     following the terminating "db 0".
+;;;
 dispatch_key:
 	call getkey
+	;; jmp_dispatch_al
+
+;;; Dispatch key value in AL
+;;;
 dispatch_al:
 	pop di
 	call get_assoc_b
 	jc >g2			; not found
 	push ax			; Found
-	mov al,[di]
+	mov al, [di]
 	cbw
-	add di,ax
+	add di, ax
 	pop ax
-g2:	cmp al,32
+g2:	cmp al, 32
 	jmp di

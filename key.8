@@ -1,208 +1,203 @@
-; key.8
-; Getkey, ungetkey, and macro record/playback code.
+;;; key.8 : getkey, ungetkey, and macro record/playback code.
 
-; Macro data is stored in a buffer created dynamically at startup.
-; Data for definitions shares a buffer with a stack for playback nesting.
-; Definitions:
-;	mxbuf = first byte in the buffer for definitions
-;	mxbtm = end of area currently used for definitions
-;	mxlimit = limit of how far mxbtm can be extended at this time
-; Stack:
-;	mxsp = stack point (pre-decrement write, post-increment read)
-;	mxstackmax = starting value for mxsp
-;	mxstackmin = limit of stack size at this time
-; Be aware that mxstackmin is an alias of mxbtm, and mxlimit is an alias
-; of mxsp.
+;;; Macros use a region of memory allocated at startup, use for definitions
+;;; (that grow upwards) and a playback stack (downwards).
+;;;
+;;;    |--  definitions  -->   unused   <--  playback stack  --|
+;;;    mxbuf  ...  mxdefsend     ...    mxsp    ...     mxbufmax
 
 
-; Key-invoked routines:
-
-; Play back, or record (if Alt-F1 <= key <= Alt-F10) a macro
-; On entry:
-;   AL = single-byte description of key struck
+;;; Play back, or record (if Alt-F1 <= key <= Alt-F10) a macro
+;;; On entry:
+;;;   AL = single-byte description of key struck
 do_mx:
-	cmp al,-104
+	cmp al, -104
 	ja mx_activate		; activate playback
-	cmp al,-113
+	cmp al, -113
 	jae do_makemx		; start recording
-	;jmp mx_activate
+	;; jmp mx_activate
 
-; Activate a macro.
-;   AL = macro to activate
+;;; Activate a macro.
+;;;   AL = macro to activate
 mx_activate:
 	call mx_find		; DI = position of macro (or buf end); AH = key
 	jcxz ret		; macro not defined => return
 	;; check for interrupt char (^G)
-	mov ah,1
+	mov ah, 1
 	int 016h
-	jz >m0			; no character
-	cmp al,7
-	jne >m0			; not ^G
+	jz >a0			; no character
+	cmp al, 7
+	jne >a0			; not ^G
 	jmp do_abort
-m0:	mov si,mxsp		; Save current ptr on mx stack
-	dec si,2
-	cmp si,mxstackmin	; Is stack full?
-	jae >m1
-	mov al,msgloop
+a0:	mov si, mxsp		; Save current ptr on mx stack
+	dec si, 2
+	cmp si, mxdefsend	; Is stack full?
+	jae >a1
+	mov al, msgloop
 	jmp msg_error
-m1:	mov ax,mxptr		; Save current mxptr in mxstack
-	mov [si],ax
-	mov mxsp,si
-	;jmp mx_nextptr		; set mxptr
+a1:	mov ax, mxptr		; Save current mxptr in mxstack
+	mov [si], ax
+	mov mxsp, si
+	;; jmp mx_nextptr	; set mxptr
 
-; Set mxptr to DI + 1; if at end of macro, pop mxptr.
-; (called after character has been gotten from [DI])
-;   On entry: DI = next macro key (or maybe end of macro)
-;   On exit:  DI = new mxptr
-;	      AX (and other registers) unchanged.
+;;; Set mxptr to DI + 1; if at end of macro, pop mxptr.
+;;; (called after character has been gotten from [DI])
+;;;
+;;; On entry: DI = next macro key (or maybe end of macro)
+;;; On exit:  DI = new mxptr
+;;;	      AX (and other registers) unchanged.
+;;;
 mx_nextptr:
 	inc di
 	test b[di]
-	jnz >l1
-	mov di,mxsp		; End of macro => pop latest mxsp
-	scasw			; for "inc di,2"
-mx_popnext:
-	mov mxsp,di
-	mov di,[di-2]
-l1:	mov mxptr,di
+	jnz >n1
+	mov di, mxsp		; End of macro => pop latest mxsp
+	scasw			; for "inc di, 2"
+n0:	;; pop state
+	mov mxsp, di
+	mov di, [di-2]
+n1:	mov mxptr, di
 	ret
 
-; Terminate all macro recording/playback
-;   mxrecptr = mxptr = 0
-;   mxsp = mxstackmax     [mxlimit == mxsp]
-;	(Called at reset/startup time)
-; On exit: AX = 0
+;;; Terminate all macro recording/playback
+;;;    mxrecptr = mxptr = 0
+;;;    mxsp = mxbufmax
+;;;
+;;; On exit: AX = 0
 mx_halt:
 	clear ax
-	mov mxrecptr,ax			; Stop any recording.
-	mov di,mxstackmax		; Stop playing: clear stack
-	mov w[di-2],ax
-	jmps mx_popnext			; mxsp = mxstackmax; mxptr = 0
+	mov mxrecptr, ax	; Stop any recording.
+	mov di, mxbufmax	; Stop playing: clear stack
+	mov w[di-2], ax
+	jmp n0			; mxsp = mxbufmax; mxptr = 0
 
-; Play macro, and execute main loop until macro is done
+;;; Play macro, and execute main loop until macro is done
+;;;
 mx_play:
 	call mx_activate
-l1:	test mxptr
+p1:	test mxptr
 	jz ret
 	call main_do
-	jmp l1
+	jmp p1
 
-; Start/Stop recording a macro, after clearing present definition.
-; On entry:
-;	AL = code for alt-Fx that started this (will be converted to Fx code)
+;;; Start/Stop recording a macro, after clearing present definition.
+;;; On entry:
+;;;	AL = code for alt-Fx that started this (will be converted to Fx code)
+;;;
 do_makemx:
-	mov di,mxrecptr
+	mov di, mxrecptr
 	test di
-	jnz mx_stop			; if already recording, stop
-	add al,45			; Alt-Fx -> Fx
+	jnz mx_stop		; if already recording, stop
+	add al, 45		; Alt-Fx -> Fx
 	push ax
-	mov al,msgrecording
+	mov al, msgrecording
 	call disp_status_msg
 	pop ax
-	;jmp mx_record
+	;; jmp mx_record
 
-; Record a macro, returning to the caller when it is done.
-; On entry:	AL = macro to record
-;	   ** Note: AL should not be a printable character, since
-;	   ** code in getkey might wipe it out when BS is typed...
+;;; Record a macro, returning to the caller when it is done.
+;;; On entry:	AL = macro to record
+;;;	   ** Note: AL should not be a printable character, since
+;;;	   ** code in getkey might wipe it out when BS is typed...
 mx_record:
-	; Delete macro.
-	;   On entry:	AL = macro name
-	;   On exit:	DI = mxbtm = start of unused macro buffer area
-	;		AH = macro name, AL = 0
+	;; Delete macro.
+	;;   On entry:	AL = macro name
+	;;   On exit:	DI = mxdefsend = start of unused macro buffer area
+	;;		AH = macro name, AL = 0
 	call mx_find
-	mov si,di		; SI = start of macro
+	mov si, di		; SI = start of macro
 	repne scasb		; DI = next macro, CX = bytes left in buffer
-	xchg di,si		; DI = previous macro, SI = next macro
+	xchg di, si		; DI = previous macro, SI = next macro
 	rep movsb		; move rest of buffer down
-	mov mxbtm,di
-	;  end "Delete macro".
+	mov mxdefsend, di
+	;; end "Delete macro".
 
-	; Start recording at end of buffer...
-	mov al,ah
-	call mx_record_byte		; Store macro name & start recording
+	;; Start recording at end of buffer...
+	mov al, ah
+	call mx_record_byte	; Store macro name & start recording
 l1:	call main_do
-	test mxrecptr			; loop while still recording
+	test mxrecptr		; loop while still recording
 	jnz l1
 	ret
 
 
-; mx_stop: Terminate successful recording.
-;   1. Write terminating 0 over the character which caused recording to end
-;   2. Set mxbtm to byte after that 0.
-;   3. Set mxrecptr to 0.
-; On entry:   DI = mxrecptr		 [Called from do_makemx]
+;;; Terminate successful recording.
+;;;   1. Write terminating 0 over the character which caused recording to end
+;;;   2. Set mxdefsend to byte after that 0.
+;;;   3. Set mxrecptr to 0.
+;;; On entry:   DI = mxrecptr
+;;;
 mx_stop:
 	clear ax
 	dec di
 	stosb			; write an END-OF-MACRO character
-	mov mxbtm,di		; mxbtm = end of used portion of buffer
-	mov mxrecptr,ax		; stop recording
-	mov al,msgmxdone		; "Macro recorded"
+	mov mxdefsend, di	; mxdefsend = end of used portion of buffer
+	mov mxrecptr, ax	; stop recording
+	mov al, msgmxdone	; "Macro recorded"
 	jmp disp_status_msg
 
 
-; Advance DI to start of macro AH, setting CX to text_btm - DI.
-; On entry:
-;    AL = macro to find
-; On exit:
-;    CX > 0 : macro was found
-;		DI points to first char (the "title")
-;		CX = mxbtm - DI
-;    CX = 0 : macro was not found, DI points to byte after all definitions
+;;; Advance DI to start of macro AH, setting CX to textbufend - DI.
+;;; On entry:
+;;;    AL = macro to find
+;;; On exit:
+;;;    CX > 0 : macro was found
+;;;		DI points to first char (the "title")
+;;;		CX = mxdefsend - DI
+;;;    CX = 0 : macro was not found, DI points to byte after all definitions
+;;;
 mx_find:
-	mov di,mxbuf
-	mov cx,mxbtm
-	sub cx,di
-	mov ah,al
-	mov al,0
+	mov di, mxbuf
+	mov cx, mxdefsend
+	sub cx, di
+	mov ah, al
+	mov al, 0
 l1:	jcxz ret
-	cmp ah,[di]
+	cmp ah, [di]
 	jz ret
 	repne scasb		; search for 0
 	jmp l1
 
 
-; getkey:
-;    Get a key from a) the unget buffer,  b) the macro buffer,  or c) BIOS
-;    and return it in AX.  If (c), and mxrecptr !=0, add the character to
-;    the macro buffer.
-; On exit:
-;	AL = key typed
-;	Flags = reflect a "cmp al,32"
-;	AH, DI = undefined
-
+;;; Get a key from a) the unget buffer,  b) the macro buffer,  or c) BIOS
+;;; and return it in AX.  If (c), and mxrecptr !=0, add the character to
+;;; the macro buffer.
+;;; On exit:
+;;;	AL = key typed
+;;;	Flags = reflect a "cmp al, 32"
+;;;	AH, DI = undefined
+;;;
 getkey:	clear ax
-	xchg al,ungotkey	; AL = ungotkey;  ungotkey = 0
+	xchg al, ungotkey	; AL = ungotkey;  ungotkey = 0
 	test al
 	jnz ret
 	clear di
-	or di,mxptr		; see if we are playing back a macro
-	jz >g3			; go if no macro data
-	mov al,[di]
+	or di, mxptr		; see if we are playing back a macro
+	jz >g1			; go if no macro data
+	mov al, [di]
 	jmp mx_nextptr		; set mxptr; If at end of macro, set it to 0
-g3:	int 016h		; get what key was hit (AH=0 => get key)
+g1:	int 016h		; get what key was hit (AH=0 => get key)
 	test al
-	jnz >g4
-	sub al,ah		; AL = -AH
-	or al,128		; make sure AL is negative (and non-zero)
-; recording?
-g4:	or di,mxrecptr		; see if we should record this keystroke
+	jnz >g2
+	sub al, ah		; AL = -AH
+	or al, 128		; make sure AL is negative (and non-zero)
+	;; recording?
+g2:	or di, mxrecptr		; see if we should record this keystroke
 	jz ret
-	cmp al,8		; If backspace was typed...
+	cmp al, 8		; If backspace was typed...
 	jnz mx_record_byte
 	dec di
-	cmp b[di],32		; ...after a literal...
-	jge >l9			; then just remove the literal
+	cmp b[di], 32		; ...after a literal...
+	jge >g9			; then just remove the literal
 	inc di			; else insert the BS
-; Write another byte into macro buffer at DI, checking limits.
+	;; Write another byte into macro buffer at DI, checking limits.
 mx_record_byte:
-	cmp di,mxlimit		; are we at end of buffer area?
+	cmp di, mxsp		; are we at end of buffer area?
 	jae >e1
 	stosb			; record character
-l9:	mov mxrecptr,di
+g9:	mov mxrecptr, di
 	ret
 
-; Error . . . Out of macro space.
-e1:	mov al,msgmxfull		; say "Macro buffer full."
+	;; Error . . . Out of macro space.
+e1:	mov al, msgmxfull	; say "Macro buffer full."
 	jmp msg_error

@@ -1,284 +1,282 @@
-; mem.8 : Text area specific code:
+;;; mem.8
 
-; get_next_byte:  Get byte pointed to by pointer DI and increment DI
-;	On entry:  DI = text pointer
-;	On exit: AL = byte from text, DI points to next byte, C set if past
-;		end of text
-
+;;; Get byte pointed to by pointer DI and increment DI
+;;; On entry:  DI = text pointer
+;;; On exit: AL = byte from text, DI points to next byte, C set if past
+;;;		end of text
+;;;
 get_next_byte:
-	mov al,ds:[di]
+	mov al, ds:[di]
 inc_ptr:
 	inc di
-	cmp text_btm,di
+	cmp textbufend, di
 	ret
 
 dec_ptr:
 	dec di
-	cmp di,text_top
+	cmp di, textbuf
 	ret
 
-; delete_di_to_si : delete a block of bytes from the text.  "jmp jmp_error"
-; if cut buffer is full.
-; On entry:
-;	DI = first byte of block
-;	SI = byte after block
-delete_di_to_si:		; source = SI...text_btm, destination = DI
-	push cx,si		; Stack = CX, SI
-	mov cx,si
-	sub cx,di		; CX = # bytes to delete
-	mov si,di		; SI = DI = start of block
+;;; Delete a block of bytes from the text.  jmp_error if cut buffer is full.
+;;; On entry:
+;;;	DI = first byte of block
+;;;	SI = byte after block
+;;;
+delete_di_to_si:		; source = SI...textbufend, destination = DI
+	push cx, si		; Stack = CX, SI
+	mov cx, si
+	sub cx, di		; CX = # bytes to delete
+	mov si, di		; SI = DI = start of block
 	call save_deletion
 	push di			; Stack = CX, SI, DI
 	call undo_rec_del	; Record deletion at SI, of length CX
-	pop di,si		; Stack = CX
-	mov cx,text_btm
-	sub cx,si		; CX = # of bytes to move
-	rep movsb		; move [SI...text_btm] to [point...?]
-	mov text_btm,di
+	pop di, si		; Stack = CX
+	mov cx, textbufend
+	sub cx, si		; CX = # of bytes to move
+	rep movsb		; move [SI...textbufend] to [point...?]
+	mov textbufend, di
 	pop cx
 	ret
 
 
-; On entry:
-;	SI = DI = first byte to be deleted
-; On exit:
-;	No registers changed.
+;;; On entry:
+;;;	SI = DI = first byte to be deleted
+;;; On exit:
+;;;	No registers changed.
+;;;
 save_deletion:
 	pusha
 	clear ax
 	test deleted		; See if cut buffer should be cleared.
 	js >s9			; If this is backspace, skip to end
-	if nz add ax,cb_size	; If not, write onto end of buffer
-	mov di,ax
-	add ax,cx
-	cmp ax,cb_limit		; see if resulting size exceeds maximum
-	mov al,msgcutfull	; say "Cut buffer full!"
+	if nz add ax, cb_size	; If not, write onto end of buffer
+	mov di, ax
+	add ax, cx
+	cmp ax, cb_limit	; see if resulting size exceeds maximum
+	mov al, msgcutfull	; say "Cut buffer full!"
 	ja jmp_msg_error
-s2:	mov es,cb_seg			; es:di = cb_seg:cb_size = destination
+s2:	mov es, cb_seg		; es:di = cb_seg:cb_size = destination
 	rep movsb
-	mov es,cs
-	mov cb_size,di
+	mov es, cs
+	mov cb_size, di
 s9:	popa
 	ret
-	
 
-; ins_at_point : Insert AL at point, and increment point.
-;   On return:  DI = point,  SI = point - 2
-;		CX == 1
+
+;;; Insert AL at point, and increment point.
+;;; On exit:
+;;;	DI = point
+;;;	SI = point - 2
+;;;	CX == 1
+;;;
 ins_at_point:
-	mov cx,1
-	;call expand_at_point	; SI = old point-1,  DI = NEW point
-	;ret
+	mov cx, 1
+	;; jmp expand_at_point	; SI = old point-1, DI = NEW point
 
-; Make room for CX bytes at point.  'point' is set to point + CX
-; Also, load [point-1] with AL.
-; On entry:
-;	AL = character to place at point
-;	CX = number of bytes to displace
-; On exit:
-;	SI = byte before OLD point, DI = point (new point)
-; If not enough memory jump to "jmp_error".
+;;; Make room for CX bytes at point.  'point' is set to point + CX
+;;; Also, load [point-1] with AL.
+;;; On entry:
+;;;	AL = character to place at point
+;;;	CX = number of bytes to displace
+;;; On exit:
+;;;	SI = byte before OLD point, DI = point (new point)
+;;; If not enough memory jump to "jmp_error".
+;;;
 expand_at_point:
 	push ax
 	call undo_rec_ins
 	pop ax
 	push cx
-	mov di,text_btm
-	mov si,di		; SI = current text_btm
-	add di,cx		; DI = new text_btm
+	mov di, textbufend
+	mov si, di		; SI = current textbufend
+	add di, cx		; DI = new textbufend
 	jc >l5			; go if not enough memory (DI > 64K)
-	cmp di,text_limit
-	ja >l5			; go if DI > text_limit
-	mov text_btm,di
-	mov cx,si		; CX = current text_btm; SI = text_btm
-	sub cx,point		; CX = # of bytes to move
+	cmp di, textbufmax
+	ja >l5			; go if DI > textbufmax
+	mov textbufend, di
+	mov cx, si		; CX = current textbufend; SI = textbufend
+	sub cx, point		; CX = # of bytes to move
 	std
 	inc cx			; move one extra byte at the end (uses slop)
 	rep movsb		; ES = DS
 	cld
 	stosb			; [di++] = AL
-	mov point,di
+	mov point, di
 	pop cx
 	ret
-l5:	mov al,msgtextfull	; say "text buffer full"
+l5:	mov al, msgtextfull	; say "text buffer full"
 jmp_msg_error:
 	jmp msg_error
 
 
-; Insert cut buffer into text at point.
+;;; Insert cut buffer into text at point.
+;;;
 insert_cut:
-	mov cx,cb_size		; CX = # of bytes
+	mov cx, cb_size		; CX = # of bytes
 	call expand_at_point
 	inc si
-	mov di,si		; DI = old point
+	mov di, si		; DI = old point
 	clear si		; SI = start of cut buffer
 	push ds
-	mov ds,cb_seg		; DS = cut buffer segment
+	mov ds, cb_seg		; DS = cut buffer segment
 	rep movsb		; move ds:[si] to es:[di]	(ES = CS)
 	pop ds
 	ret
 
-; Write a recognizable invalid undo record... (size = 0)
+;;; Write a recognizable invalid undo record... (size = 0)
+;;;
 undo_init:
-	;  For now, don't worry about checking start of buffer
-	mov cx,0
-	;jmp undo_rec_ins
+	;; For now, don't worry about checking start of buffer
+	mov cx, 0
+	;; jmp undo_rec_ins
 
-; Record insert.
-;   On entry:  CX = size,  point = pos
-;   On exit:   AX, DI undefined.   CX, SI unchanged.
+;;; Record insert.
+;;; On entry:  CX = size, point = pos
+;;; On exit:   AX, DI undefined.   CX, SI unchanged.
 undo_rec_ins:
-	mov si,point
-	clc_skip1			; NC => recording insert
-; Record delete.
-;   On entry:  CX = size,  SI = pos
-;   On exit:   AX, CX, DI, SI undefined.
+	mov si, point
+	clc_skip1		; NC => recording insert
+
+;;; Record delete.
+;;;   On entry:  CX = size, SI = pos
+;;;   On exit:   AX, CX, DI, SI undefined.
 undo_rec_del:
 	stc
 	pushf
-	call undo_les		; les di,ub_end and test ES==0
+	call undo_les		; les di, ub_end and test ES==0
 	jz undo_save_ret
-	mov ax,si		; AX = pos
+	mov ax, si		; AX = pos
 	stosw			; write POS
-	mov ax,cx		; AX = CX = size
+	mov ax, cx		; AX = CX = size
 	popf
 	jnc >u1
-	; store bytes to-be-deleted...  (This is all that modifies SI & CX)
+	;; store bytes to-be-deleted...  (This is all that modifies SI & CX)
 	rep movsb		; CX bytes from DS:SI to ES:DI
 u1:	stosw			; store size
-	rcl al,1		; 0 => insert, 1 => delete (ignore other bits)
+	rcl al, 1		; 0 => insert, 1 => delete (ignore other bits)
 	stosb			; store "insert" or "delete"
-	xchg ax,di
-	mov ub_pos,ax
-	mov ub_undo_pos,ax
+	xchg ax, di
+	mov ub_pos, ax
+	mov ub_undo_pos, ax
 	push ax
 undo_save_ret:
 	pop ax
-	mov unsaved,0ffh	; Deletes and inserts change the buffer...
+	mov unsaved, 0ffh	; Deletes and inserts change the buffer...
 undo_fix_es:
-	mov es,cs		; restore ES
+	mov es, cs		; restore ES
 	ret
 
 
 undo_les:
-	les di,ub_end
-	mov ax,es
+	les di, ub_end
+	mov ax, es
 	test ax
 	ret
 
-; Read undo record, set point to pos, replace/remove text, update ub_undo_pos
+;;; Read undo record, set point to pos, replace/remove text, update ub_undo_pos
+;;;
 do_undo:
 	call undo_les
 	jz undo_fix_es
-	mov si,ub_undo_pos
-	mov ds,ax		; DS = ub_seg
-	mov es,cs
-	sub di,si
+	mov si, ub_undo_pos
+	mov ds, ax		; DS = ub_seg
+	mov es, cs
+	sub di, si
 	neg di			; DI = ub_undo_pos - ub_pos  (0=64K)
 	dec di			; DI = free space - 1
-	sub di,11		; I think this is 1 or 2 more than necessary
+	sub di, 11		; I think this is 1 or 2 more than necessary
 	jc >l0			; go if out of room
 	std
 	dec si
 	lodsw			; AX = [si]; SI -= 2
-	xchg ax,bx		; BL = type of record
+	xchg ax, bx		; BL = type of record
 	lodsw			; AX = count
 	cld
-	mov cx,ax
+	mov cx, ax
 	test ax			; size==0 => start-of-time marker
 	jnz >l1
-l0:	mov ds,cs
-	mov al,msgnomore
+l0:	mov ds, cs
+	mov al, msgnomore
 	jmp jmp_msg_error
-l1:	cmp di,ax
+l1:	cmp di, ax
 	jbe l0			; go if out of room
-	test bl,1		; 1 => undoing a deletion
+	test bl, 1		; 1 => undoing a deletion
 	jz >i1
-	sub si,ax		; del : skip the text bytes in the undo record
+	sub si, ax		; del : skip the text bytes in the undo record
 	push ds			; del : store ds for later
 i1:	push si
 	lodsw			; AX = pos
-	mov ds,cs
-	mov point,ax
-	test bl,1
+	mov ds, cs
+	mov point, ax
+	test bl, 1
 	jnz >d2
-	mov di,ax		; ins : Call delete_di_to_si
-	add ax,cx		; ins
-	mov si,ax		; ins
+	mov di, ax		; ins : Call delete_di_to_si
+	add ax, cx		; ins
+	mov si, ax		; ins
 	call delete_di_to_si	; ins
 	jmp >i2
 d2:	call expand_at_point	; del : make room for CX bytes at point
 i2:	pop si
-	mov ub_undo_pos,si	; SI is at start of undo record
-	test bl,1
+	mov ub_undo_pos, si	; SI is at start of undo record
+	test bl, 1
 	jz >i3
 	pop ds
 	lodsw			; SI = position of deleted text
-	mov di,ax
+	mov di, ax
 	rep movsb		; replace deleted text
-	mov ds,cs
-	mov point,ax
-i3:	mov al,msgundo
+	mov ds, cs
+	mov point, ax
+i3:	mov al, msgundo
 	call disp_status_msg
 	jmp disp_page
 
-;undo_nomore:
-;	mov ds,cs
-;	mov al,msgnomore
-;	jmp disp_status_msg
 
-
-; Allocate space for the cut buffer and set cb_seg and cb_limit
-; Also, allocate space for the undo buffer.
-; Preserves no registers.  On exit: AX = cb_seg, BX = cb_limit
+;;; Allocate cut buffer and undo buffer.
+;;; On exit: AX = cb_seg, BX = cb_limit, BP = ?, DI = ?, DX = ?
+;;;
 init_bufs:
-;;cb_init:
-	mov bp,ds		;    BP = DS
-	mov di,offset cb_seg	;    DI = cb data
-	lea bx,[bp+4096]	; 4096 * 16 = 64K   (BX = byte after code seg)
-	mov ax,w[02]		; AX = segment pointer to end of memory
-	sub ax,bx		; AX = top - end of code/stack segment
+	mov bp, ds		; BP = DS
+	mov di, offset cb_seg	; DI = cb data
+	lea bx, [bp+4096]	; 4096 * 16 = 64K   (BX = byte after code seg)
+	mov ax, w[02]		; AX = segment pointer to end of memory
+	sub ax, bx		; AX = top - end of code/stack segment
 	jbe >l1			; No memory above code segment!
-	cmp ah,010		; See if avaible cut buffer memory > 64K
+	cmp ah, 010		; See if avaible cut buffer memory > 64K
 	if ae clear ax		; If so, use maximum number of "paragraphs"
-	shl ax,4		; CX = CX * 16		[186+]
+	shl ax, 4		; CX = CX * 16		[186+]
 	dec ax			; 0 paragraphs => 64 K
-cb_set_buffer:
-	xchg ax,bx
-	stosw 			; mov cb_seg,ax
-	mov [di],bx		; mov cb_limit,bx
-;;ub_init:
-	add ax,8192
-	cmp ax,w[02]
+i1:	xchg ax, bx
+	stosw			; set cb_seg
+	mov [di], bx		; set cb_limit
+	add ax, 8192
+	cmp ax, w[02]
 	ja ret
-u1:	sub ax,4096
-	mov ub_seg,ax
+	sub ax, 4096
+	mov ub_seg, ax
 	ret
 
-; Not enough memory above code segment --> split text buffer
-; cut buffer <- 1/4,  text buffer <- 3/4
-l1:	mov ax,text_limit
-	mov bx,ax
-	mov cx,ax
-	sub ax,text_top
+;;; Not enough memory above code segment --> split text buffer
+;;; cut buffer <- 1/4, text buffer <- 3/4
+l1:	mov ax, textbufmax
+	mov bx, ax
+	mov cx, ax
+	sub ax, textbuf
 	jc >l9
-	shr ax,6			; AX = # pargs / 4
+	shr ax, 6		; AX = # pargs / 4
 	jz >l9
-	shr bx,4			; BX = parg for text_limit
-	sub bx,ax			; BX = parg for new text_limit
-	mov ax,bx
-	shl ax,4			; AX = new text limit
-	mov text_limit,ax
-	xchg ax,cx
-	sub ax,cx			; AX = cb_limit
-	add bx,bp			; BX = cb_setg
-	jmp cb_set_buffer
+	shr bx, 4		; BX = parg for textbufmax
+	sub bx, ax		; BX = parg for new textbufmax
+	mov ax, bx
+	shl ax, 4		; AX = new text limit
+	mov textbufmax, ax
+	xchg ax, cx
+	sub ax, cx		; AX = cb_limit
+	add bx, bp		; BX = cb_setg
+	jmp i1
 
-l9:	mov dx,dosmsg4		; say "You're screwed."
+l9:	mov dx, dosmsg4		; say "You're screwed."
 	jmp err_exit
 
 
-initial_newline	db	10	; needed by certain routines
-text_top	equ $
-
-
+initial_newline	db 10		; needed by certain routines
+textbuf		equ $

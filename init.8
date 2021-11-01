@@ -1,36 +1,22 @@
-; init.8
-; Data and macros.  Appears first in the list of modules to assemble.
+;;; init.8 : Data & macros.  Must appear first in list of modules.
 
-; dimension struc:
-;    This block of variables consists of pairs of (x,y) values corresponding
-; to window size parameters and limits.  It can be accessed as separate
-; interleaved strucutures: one which tells everything about X dimensions,
-; one which does the same for y dimensions.  (That is how set_dimensions
-; works -- it performs limit checking on the X values the same way it
-; performs the limit checking on Y values.)
-
-dimension struc [si]
-	d_offs	db 2 dup ?
-	d_cols	db 2 dup ?
-	d_max	db 2 dup ?
-	d_wid	db ?
-ends
-
-EOT_CHAR	equ 236	; Omega character; displayed at end of text
-maxline		equ 48
-STACKSIZE	equ 256
-MX_BUF_SIZE	equ 300	; 1 byte/keystroke, 2 bytes/macro, 2 bytes/nest level
-SRCH_SIZE	equ 32	; Warning: each character needs 6 bytes of stack...
-FNAME_SIZE	equ 07E ; maximum size of file name
+EOT_CHAR	equ 236	 ; Omega character; displayed at end of text
+MXBUF_SIZE	equ 300	 ; 1 byte per keystroke, 2 per macro, 2 per nest level
+SRCHBUF_SIZE	equ 32	 ; Warning: each character needs 6 bytes of stack...
+FNAME_SIZE	equ 07Eh ; maximum size of file name
 ARGBUF		equ 081h ; address of argument buffer; use to hold file name
+TABCHAR		equ 9
+
+;;; The data segment contains variables that overlap the once-used
+;;; 3-byte jmp instruction that begins the code segment.
 
 data segment
-	; These variables should overlap this once-used 3-byte jmp instruction.
 	org 0100h
-	cursor		label word
-	cursorX 	db ?
-	cursorY 	db ?
-	clrstat		db ?		; controls clearing of status line
+cursor		label word
+cursorX		db ?
+cursorY		db ?
+clrstat		db ?		; controls clearing of status line
+
 
 code segment
 
@@ -40,39 +26,31 @@ color		db ?		; current color
 
 EVEN
 
-;;
-;; key.8 variables
-;;
-;; **Warning**: These values are accessed in order during memory
-;;    initialization.  Check initialization code before re-ordering these.
-;;    They are organized in descending order to be assigned when calculated.
+;;;
+;;; **Warning**: The ordering of the following variables is significant.
+;;;     Refer to the initialization logic before re-ordering.
+;;;
 
 dyn_buffers:
-mxstackmax	dw		; same as mxmax
-mxmax		dw ?		; end of macro data buffer region
-mxstackmin	dw		; same as mxbtm (indicates limit of stack size)
-mxbtm		dw ?		; end of definitions (starts = mxbuf)
-mxbuf		dw		; position of macro buffer (same as srch_max)
-srch_max	dw ?		; srchstr + SRCH_SIZE = mxbuf
-srchstr		dw ?		; start of search string buffer
-fname_buf	dw		; temp fname; starts where text buffer ends
-text_limit	dw ?		; maximum value for text_btm
+mxbufmax	dw ?		; see key.8
+mxdefsend	dw ?
+mxbuf		dw
+srchbufmax	dw ?		; see srch.8
+srchbuf		dw ?
+fnamebuf	dw		; temp file name
+textbufmax	dw ?
 
-;;
-;;  srch.8 variables:
-;;
+;;; Search state
 
-srchend		dw ?		; ptr to end of srchstr[]
+srchend		dw ?		; ptr to end of srchbuf[]
 srchdir_n_mask	dw
 srchdir		db ?		; search direction
 srchcsmask	db ?		; 0FF if case sensitive, 95 if not
-srchtextmax	dw ?		; = text_btm - len(srchstr)
+srchtextmax	dw ?		; = textbufend - len(srchbuf)
 srchmode	db ?
 srcholdlen	dw 0		; 0 => no previous search string
 
-;;
-;;  Undo buffer
-;;
+;;; Undo state
 
 ub_end		dq
 ub_pos		dw ?
@@ -80,20 +58,19 @@ ub_seg		dw 0		; ub_init assumes ub_limit follows ub_seg.
 ub_limit	dw ?
 ub_undo_pos	dw ?
 
-;;
-;;  Cut buffer
-;;
+;;;  Cut buffer
 
-; Order of these cut buffer variables is important; cb_init assumes
-; that cb_limit follows cb_seg.
+	;; The ordering of cb_eg and cb_limit is significant;
+	;; refer to init_bufs.
 cb_end		dq
 cb_size		dw 0		; number of bytes in the cut buffer
 cb_seg		dw ?		; segment pointer to start of cut buffer
 cb_limit	dw ?		; maximum size of the cut buffer
 
 physline	dw ?		; value calculated by advance_to_di
-err_sp		dw ?		; stores SP for catch_error() and jmp_error()
+error_sp	dw ?		; SP saved by catch_error
 
+;;; Display location
 
 topleft		label word	; A quick way to access xoff and yoff
 xoff		db 0		; (xoff,yoff) is an offset to which all other
@@ -111,26 +88,21 @@ screen_seg	dw
 screen_page	db 0		; If screen_page == 0 then write to screen buf
 				; (When non-zero, screen_seg holds screen mem)
 
+;;; macro state
 
-;;
-;;  key.8 variables:
-;;
 mxptr		dw ?	; playback pointer (0 => playback off)
-				; Points to character getkey will return
+			; Points to character getkey will return
 mxrecptr	dw ?	; record pointer  (0 => not recording)
-				; mxrecptr points to next place to store a char
-mxsp		dw		; same as mxlimit (bottom of stack)
-mxlimit		dw ?		; limit for macro definitions (starts = mxmax)
+			; mxrecptr points to next place to store a char
+mxsp		dw ?	; limit for macro definitions (starts = mxbufmax)
 ungotkey	db 0
 
-; These variables pertain to the current state of the editor.
-; (as does cursor)
+
+;;; Editing state
 
 targetX		db 0		; stores column for goto next/prev line fns.
-
 verbatim	db 0		; >0 if CR's should be displayed, 0 if not
 dispmode	db 0		; Specifies representation of ctrl chars
-
 
 
 changes		label word	; Set 'unsaved' and 'deleted' at one time
@@ -140,37 +112,31 @@ wnd_ptr		dw ?		; = Where in text the top-left of screen is.
 wnd_drawn	dw ?		; value of 'wnd_ptr' at time of last disp_page
 point		dw ?		; Current edit point in text (where cursor is)
 text_mark	dw 0		; Current mark setting (0 indicates not set)
-text_btm	dw text_top	; Points to byte after end of text.
+textbufend	dw textbuf	; Points to byte after end of text.
 
-; These variables affect the manner in which text is displayed.
+;;; Text display settings
 
 defcolor	db 0Eh		; default color
 hlt_and_inv	dw		; get hlt and inv at once
 hltcolor	db 7		; highlighted color
 invcolor	db 020h		; inverse color
-;;hltcolor	db 9		; highlighted color
-;;invcolor	db 01Eh		; inverse color
 tabwid		db 8		; "-tX" changes this.
-tabchar		equ 9		; this is not modifiable at present
 crlf		db 13		; Used by save_file().  (If newline changes,
 		;db 10		; then verbatim is set & crlf won't be used!)
 newline		db 10		; character denoting end of logical line (-nX)
 				; If "-n.." is given, verbatim should be set!
 
-
-
-; Menu definition:
-; Lower case typed letters are converted to upper before checking for match
+;;; Menu definition macro
 
 menudef MACRO
-#1menu:	db #2, 0		; #1 = label prefix,  #2 = menu prompt
+#1menu:	db #2, 0		; #1 = label prefix, #2 = menu prompt
 	db #3			; #3 = no. of menu options
 	dw #1menuL		; label for list of action letters
   #rx4l
 	dw #x			; jump vectors for actions  (4, 6, 8, ...)
   #e2
   #ry5l
-	db #y,0			; strings for actions	(#5, 7, 9, ...)
+	db #y, 0		; strings for actions	(#5, 7, 9, ...)
   #e2
 #1menuL: db			; define label for list of action letters
 #EM
@@ -179,9 +145,9 @@ dvect MACRO db #1, (#2 - $) #EM
 
 jmps MACRO jmp short #1 #EM
 
-clear MACRO sub #1,#1 #EM
+clear MACRO sub #1, #1 #EM
 
-shr4 MACRO shr #1,4 #EM		; redefine to be 286 specific or not
+shr4 MACRO shr #1, 4 #EM	; redefine to be 286 specific or not
 
 pushi MACRO push #1 #EM		; 286 specific or not.  Since the 8086 version
 				; might use AX, use this as if it trashes AX.
@@ -190,15 +156,15 @@ clc_skip1 MACRO db 0A8h #EM	; "test al,ib" : Clears carry, skips next byte
 
 skip2 MACRO db 0a9h #EM		; "test ax, im"... next 2 bytes are imm data
 
-ungetkey MACRO mov ungotkey,#1 #EM
+ungetkey MACRO mov ungotkey, #1 #EM
 
 jmpon MACRO
-	cmp al,#1
+	cmp al, #1
 	jz #2
 #EM
 
-; Bind one-byte keys to two-byte values (usually addresses)
-;
+;;; Bind one-byte keys to two-byte values (usually addresses)
+
 bind MACRO #rx2l
 	db  #x		; byte representing key
 	dw  offset #1	; word holding associated value
@@ -206,38 +172,38 @@ bind MACRO #rx2l
 #em
 
 
-; Bind one-byte keys to one-byte values
-;
+;;; Bind one-byte keys to one-byte values
+
 bind_b MACRO #rx2l
 	db  #x		; byte representing key
-	db  #1	; word holding associated value
+	db  #1		; word holding associated value
   #er
 #em
 
-;; Message indices:
+;;; Message indices
+;;;
+;;; Note: srch_input relis on these properties:
+;;;	msgrsrch AND 3 == msgrplc
+;;;	msgsrch AND 3 == msgrplc
+;;;	msgedit == 3
+
 msgfilesaved	equ 1
 msgnewfile	equ 2
-msgtextfull	equ 16
+msgedit		equ 3
 msgcutfull	equ 4
 msgmarkset	equ 5
 msgmarknot	equ 6
 msgaborted	equ 7
-
 msgmxfull	equ 8
 msgrecording	equ 9
 msgmxdone	equ 10
 msgloop		equ 11
-
-; srch_input benefits from this property:  msgrsrch AND 3 == msgrplc
-;					   msgsrch AND 3 == msgrplc
-;				 Also:	   msgedit == 3
-msgrsrch	equ 12	; "R-Search:"
-msgsrch		equ 14	; "Search:"  (== msgrsrch + 2)
-msgfull		equ 13	; "(full):"
-msgrplc		equ 15	; "Replace? ..."
-msgedit		equ 3	; "Press Ctrl-S when done..."
+msgrsrch	equ 12
+msgfull		equ 13
+msgsrch		equ 14
+msgrplc		equ 15
+msgtextfull	equ 16
 msgnotfound	equ 17	; srch_more needs (msgnotfound > other msgs)
-
 msgloadfile	equ 26
 msgsavefile	equ 27
 msgreaderror	equ 28
@@ -253,59 +219,56 @@ dosmsg4:	db 'TM: Not enough memory$'
 banner:	db 'TM 1.4'
 msg0:	db 0
 msgfilesaved_addr:
-	db -39,'d',-40,0		; 1 = 'Saved "<fnm>"'
-	db 'New',-31,-40,0		; 2 = 'New file: "<fnm>"'
-	db 'Type ^S when done...',0	; 3 = 'Type ^S when done...'
-	db 'Cut',-20,0			; 4 = 'Cut buffer full!'
-	db -21,'set.',0			; 5 = 'Mark set.'
-	db -21,-22,'set!',0		; 6 = 'Mark not set!'
-	db '^G',0			; 7 = '^G'
-	db -23,-20,0			; 8 = 'Macro buffer full!'
-	db -25,-41,-23,'...',0		; 9 = 'Recording macro...'
-	db -23,' ',-25,-18,0		; 10 = 'Macro recorded.'
-	db -23,' loop!',0		; 11 = 'Macro loop!'
-
-	;;  Search messages, 12...17 (numbering is significant)
+	db -39, 'd', -40, 0		; 1 = 'Saved "<fnm>"'
+	db 'New', -31, -40, 0		; 2 = 'New file: "<fnm>"'
+	db 'Type ^S when done...', 0	; 3 = 'Type ^S when done...'
+	db 'Cut', -20, 0		; 4 = 'Cut buffer full!'
+	db -21, 'set.', 0		; 5 = 'Mark set.'
+	db -21, -22, 'set!', 0		; 6 = 'Mark not set!'
+	db '^G', 0			; 7 = '^G'
+	db -23, -20, 0			; 8 = 'Macro buffer full!'
+	db -25, -41, -23, '...', 0	; 9 = 'Recording macro...'
+	db -23, ' ', -25, -18, 0	; 10 = 'Macro recorded.'
+	db -23, ' loop!', 0		; 11 = 'Macro loop!'
 	db 'R-', -14, 0			; 12 = 'R-Search:'
 	db -19, ' :', 0			; 13 = 'Full! :'
-	db 'Search:',0			; 14 = 'Search:'
-	db -38,'? (Y,N,A,Q) :',0	; 15 = 'Replace? (Y,N,A,Q) :'
-	db -33,-20,0			; 16 = 'File buffer full!'
-	db -22,'found:',0		; 17 = 'Not found:'
-
+	db 'Search:', 0			; 14 = 'Search:'
+	db -38, '? (Y,N,A,Q) :', 0	; 15 = 'Replace? (Y, N, A, Q) :'
+	db -33, -20, 0			; 16 = 'File buffer full!'
+	db -22, 'found:', 0		; 17 = 'Not found:'
 	db 'ed.', 0			; 18 = 'ed.'
 	db 'full!', 0			; 19 = 'full!'
 	db ' buffer ', -19, 0		; 20 = ' buffer full!'
 	db 'mark ', 0			; 21 = 'mark '
-	db 'not ',0			; 22 = 'not '
+	db 'not ', 0			; 22 = 'not '
 	db 'macro', 0			; 23 = 'macro'
 	db 'Quit', 0			; 24 = 'Quit'  (è)
 	db 'record', 0			; 25 = 'record'
-	db -35,-31,0			; 26 = 'Load file:'
-	db -39,-31,0			; 27 = 'Save file:'
-	db -35,' ',-32,'!',0		; 28 = 'Load error!'
-	db -33,' too big!',0		; 29 = 'File too big!'
-	db -32,' ',-34,-41,-33,'!',0	; 30 = 'error saving file!'
-	db ' ',-33,':',0		; 31 = ' file:'
-	db 'error',0			; 32 = 'error'
-	db 'file',0			; 33 = 'file'
-	db 'sav',0			; 34 = 'sav'   (Þ)
-	db 'Load',0			; 35 = 'Load'  (Ý)
-	db -35,'ed',-40,0		; 36 = 'Loaded "FILE"'
-	db ' changes',0			; 37 = ' changes' (Û)
-	db 'Replace',0			; 38 = 'Replace'  (Ú)
-	db 'Save',0			; 39 = 'Save'     (Ù)
-	db ' "',-128,'"',0		; 40 = '"FILE"'   (Ø)
-	db 'ing ',0			; 41 = 'ing '
-	db 'no more ',-44,'!',0		; 42 = 'no more undo!'
-	db -44,-41,'...',0		; 43 = 'undoing ...'
-	db 'undo',0			; 44 = 'undo'
+	db -35, -31, 0			; 26 = 'Load file:'
+	db -39, -31, 0			; 27 = 'Save file:'
+	db -35, ' ', -32, '!', 0	; 28 = 'Load error!'
+	db -33, ' too big!', 0		; 29 = 'File too big!'
+	db -32, ' ', -34,-41,-33,'!',0  ; 30 = 'error saving file!'
+	db ' ', -33, ':', 0		; 31 = ' file:'
+	db 'error', 0			; 32 = 'error'
+	db 'file', 0			; 33 = 'file'
+	db 'sav', 0			; 34 = 'sav'   (Þ)
+	db 'Load', 0			; 35 = 'Load'  (Ý)
+	db -35, 'ed', -40, 0		; 36 = 'Loaded "FILE"'
+	db ' changes', 0		; 37 = ' changes' (Û)
+	db 'Replace', 0			; 38 = 'Replace'  (Ú)
+	db 'Save', 0			; 39 = 'Save'     (Ù)
+	db ' "', -128, '"', 0		; 40 = '"FILE"'   (Ø)
+	db 'ing ', 0			; 41 = 'ing '
+	db 'no more ', -44, '!', 0	; 42 = 'no more undo!'
+	db -44, -41, '...', 0		; 43 = 'undoing ...'
+	db 'undo', 0			; 44 = 'undo'
 
 menudef ESC, 'Option:', 4, save_file, -39, save_as, 'Þe As', find_file, -35, chk_exit, -24
-	bind_b 1, 'S',19		; 'S' and ctrl-S execute "Save"
-	bind_b 2, 'A',23		; 'A' and ctrl-W execute "save As"
-	bind_b 3, 'L',6			; 'L' and ctrl-F execute "Load"
-	bind_b 4, 'Q',3			; 'Q' and ctrl-C execute option 2
+	bind_b 1, 'S', 19		; 'S' and ctrl-S execute "Save"
+	bind_b 2, 'A', 23		; 'A' and ctrl-W execute "save As"
+	bind_b 3, 'L', 6		; 'L' and ctrl-F execute "Load"
+	bind_b 4, 'Q', 3		; 'Q' and ctrl-C execute option 2
 	db 0
 
 menudef EXIT, 'è and loseÛ?', 3, menuret, 'No', exit_to_dos, 'Yes', save_and_exit, 'Ù'
@@ -320,20 +283,21 @@ menudef LOAD, 'Ý:Ø unÞî', 2, save_and_find, 'ÙÛ', load_named, 'Ú'
 	db 0
 
 
-; Key bindings:
-;    When a special key (a non-printable one) is typed, this list of
-; key bindings is searched for a function to execute.  Control characters
-; are represented by their usual value; extended codes are represented
-; by their second byte only.
-;    Bindings are stored as a sequential list of (key,function) pairs, but
-; are written in a more convenient and abbreviated style using a macro:
-; "bind <fn>, key1, key2, ..."  generates (key1,fn), (key2,fn), ..., pairs.
-;    A zero byte (in the place of a key) terminates the list of bindings.
+;;; Key bindings
+;;;
+;;; When a key is pressed, this list of bindings is searched for a
+;;; function to execute.  A key is identified by its ASCII value
+;;; if one is returned by BIOS; otherwise (0-scancode) is used.
+;;;
+;;; Each invocation of the `bind` macro may generate one *or more*
+;;; (key, function) pairs.
+;;;
+;;; A zero key value terminates the list of bindings.
 
 fn_bindings:
 	bind do_literal, 10		; LF
 	bind do_enter, 13		; Enter
-	bind do_tab, 9			; tab
+	bind do_literal, 9		; tab
 	bind do_backspace, 8		; BackSpace
 	bind go_up, 16, -72		; ctrl-P, Up
 	bind go_dn, 14, -80		; ctrl-N, Down
@@ -368,3 +332,20 @@ fn_bindings:
 	bind do_insline, 15		; Ctrl-O
 	bind do_undo, 31		; Ctrl-"_"
 	bind do_mx, 0			; default: define or look for macro
+
+
+;;; `dimension` structure:
+;;;
+;;; This block of variables consists of pairs of (x, y) values corresponding
+;;; to window size parameters and limits.  It can be accessed as separate
+;;; interleaved strucutures: one which tells everything about X dimensions,
+;;; one which does the same for y dimensions.  (That is how set_dimensions
+;;; works -- it performs limit checking on the X values the same way it
+;;; performs the limit checking on Y values.)
+
+dimension struc [si]
+	d_offs	db 2 dup ?
+	d_cols	db 2 dup ?
+	d_max	db 2 dup ?
+	d_wid	db ?
+ends
