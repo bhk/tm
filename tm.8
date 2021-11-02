@@ -182,7 +182,6 @@ do_insline:
 ;;; Go to the start of the line
 ;;;
 go_home:
-	mov si, di		; DI = point, DL = newline
 	call find_sol
 	mov point, si
 	mov al, 0
@@ -779,18 +778,11 @@ r1:	pop si, di, bx
 	ret
 
 
-;;; Advance cursor
-;;;	if al=newline then bl = 0; bh++ else
-;;;	  bl++
-;;;	  if bl>maxX then bl=0; bh++
-;;;	end
-;;;	if bh > maxY then return Carry  else return NoCarry
-;;; On entry:
-;;;	BX = cursor position
-;;;	AL = character we are advancing over
+;;; Advance cursor BX to next position, given next character AL.
+;;;
 ;;; On exit:
 ;;;	BX = new cursor position
-;;;	Other registers unchanged.
+;;;	Preserves other registers.
 ;;;
 advance_bx:
 	test al, not 31		; see if <= 31
@@ -904,7 +896,6 @@ l3:	cmp di, physline	;  physline may hold the value of a much
 ;;;	     physline = position of the most recent start of physical line
 get_column:
 	push si
-	mov si, di		; Let's do this the easy way:
 	call find_sol		;    start from the beginning of the line.
 get_column_from_si:
 	mov ah, bh
@@ -914,13 +905,14 @@ get_column_from_si:
 	pop si
 	ret
 
-;;; Find cursor position corresponding to text position DI, given SI & BX
+;;; Find cursor position corresponding to text position DI.
+;;;
 ;;; On entry:
 ;;;	SI = a position in the text
-;;;	BX = cursor position corresponding to SI
-;;;	DI = a text position following SI
+;;;	DI = a position following SI
+;;;	BX = cursor position of SI
 ;;; On exit:
-;;;	BX = cursor position corresponding to DI
+;;;	BX = cursor position of DI
 ;;;	DI = SI = entry DI
 ;;;	physline = last text position at the start of a physical line
 ;;;
@@ -1377,9 +1369,10 @@ argbindings:
 	db 0
 
 
-;;; Find start of line.  Decrement SI until [SI-1] == newline
-;;; Note: b[textbuf-1] == 10
+;;; Find start of line containing DI, putting result in SI.
+;;;
 find_sol:
+	mov si, di
 	mov al, newline
 l1:	dec si
 	cmp al, b[si]
