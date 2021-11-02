@@ -212,13 +212,11 @@ go_pgup:
 	ret
 
 
+;;; go_pgdn: Go down DH-1 (maxY-1) lines
+;;;
 d1:	call dn1
 	jc ret
 	call top_dn
-
-
-;;; Go down DH-1 (maxY-1) lines
-;;;
 go_pgdn:
 	dec dh
 	jnz d1
@@ -434,7 +432,7 @@ mov_point_di:
 
 ;;; Move up one line seeking column CL; do not save cursor & point.
 ;;;
-mvup1:	mov physline, -1
+mvup1:	mov bp, -1
 	mov ch, bh
 	dec ch			; note that CH == -1 is possible...take care.
 l1:	call dec_ptr
@@ -469,11 +467,11 @@ dn1:	mov ch, bh
 	mov cl, targetX		; CL = target column
 l1:	call get_next_byte	; get_byte & inc DI
 	jc >r1			; done if past end of text
-	mov bp, bx
+	mov si, bx
 	call advance_bx		; Go to next cursor position (indicated by al)
 	cmp bx, cx		; loop while BX <= target
 	jbe l1
-	mov bx, bp		; Get previous cursor pos (the last one <= CX)
+	mov bx, si		; Get previous cursor pos (the last one <= CX)
 r1:	dec di
 	cmp bh, ch
 	jc ret			; end of text before next line...
@@ -537,7 +535,7 @@ do_recenter:
 place_point:	; Place point at line #BH on screen
 	mov di, point
 	call get_column		; set CX = start of physical line
-	mov di, physline
+	mov di, bp
 	mov bl, 0		; move up from start of line
 	mov cl, bl		; target column = 0
 l1:	test bh
@@ -836,9 +834,9 @@ top_up:	push bx, di, si
 l1:	call dec_ptr
 	jc >l3
 	call retreat_bx
-	cmp si, physline
+	cmp si, bp
 	je >a1
-	mov si, physline
+	mov si, bp
 	mov di, si
 	mov bl, 0
 a1:	test bl			; retreat until BL = 0
@@ -868,7 +866,7 @@ go_up:	call up1
 ;;; end
 ;;;
 retreat_bx:
-	mov physline, -1
+	mov bp, -1
 reretreat_bx:
 	test bl
 	jnz >l1
@@ -881,10 +879,10 @@ l1:	dec bx			; for "dec bl"
 	;; A somewhat more efficient algorithm would only use get_column for
 	;;  tab, newline, and for the other ctrl chars only when dispmode != 0.
 	;;-- If newline or tabchar...
-l3:	cmp di, physline	;  physline may hold the value of a much
+l3:	cmp di, bp		;  bp may hold the value of a much
 	jb get_column		;  closer known start-of-line
 	push si			; If it is set, we'll assume it's still
-	mov si, physline	; valid.
+	mov si, bp		; valid.
 	jmps get_column_from_si
 
 
@@ -893,7 +891,7 @@ l3:	cmp di, physline	;  physline may hold the value of a much
 ;;; On exit:   BL = cursor column corresponding to SI
 ;;;	     BH unchanged.
 ;;;	     AX undefined.
-;;;	     physline = position of the most recent start of physical line
+;;;	     BP = position of the most recent start of physical line
 get_column:
 	push si
 	call find_sol		;    start from the beginning of the line.
@@ -914,7 +912,7 @@ get_column_from_si:
 ;;; On exit:
 ;;;	BX = cursor position of DI
 ;;;	DI = SI = entry DI
-;;;	physline = last text position at the start of a physical line
+;;;	BP = last text position at the start of a physical line
 ;;;
 l0:	lodsb			; al = [SI++]
 	call advance_bx
@@ -922,7 +920,7 @@ l0:	lodsb			; al = [SI++]
 	if a dec bh		; If BH > disp_lines, dec BH
 advance_to_di:
 	test bl
-	if z mov physline, si	; Keep track of the start of the physical line.
+	if z mov bp, si		; Keep track of the start of the physical line.
 	cmp si, di		; If at byte where cursor is,
 	jne l0			;   we're done
 	ret
