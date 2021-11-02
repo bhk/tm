@@ -39,7 +39,7 @@ load_file:
 	int 021h
 	jc >f2			; error, or file not found
 	xchg ax, bx		; for "mov bx, ax";  BX = file handle
-	call catch_error
+	call catch
 	jc >f3
 	mov cx, textbufmax
 	inc cx			; ask for one too many bytes (uses slop)
@@ -81,12 +81,12 @@ get_size:
 	sub cx, dx
 	ret
 
-;;; On error, jumps to jmp_catch
+;;; Throws on error.
 fclose_bx:
 	mov ah, 03Eh
 	jmps dosint
 
-;;; On error, jumps to jmp_catch
+;;; Throws on error.
 write_text:
 	test verbatim
 	jz add_CRs
@@ -94,16 +94,16 @@ write_text:
 	;; jmp write_bytes	; save data DIRECTLY
 
 ;;; Write CX bytes at DX to file handle BX.
-;;; On error, jumps to jmp_catch
+;;; Throws on error.
 write_bytes:
 	mov ah, 040h
 	;; jmp dosint
 
 ;;; Execute int 021h and handle error.
-;;; On error, jumps to jmp_catch
+;;; Throws on error.
 dosint:	int 021h
 	jnc ret
-	jmp jmp_catch
+	jmp throw
 
 
 ;;; Ask for file name and save file
@@ -113,7 +113,8 @@ save_as:
 	call edit_name
 	;; jmp save_file
 
-;;; Save file to disk
+;;; Save file to disk. Throws on error.
+;;;
 ;;;    If (!verbatim) then output all LF's as CR/LF's, using the following
 ;;; loop:
 ;;;	1. Output all bytes up to the next LF.
@@ -124,7 +125,7 @@ save_as:
 save_file:
 	call filetest
 	jz save_as
-	call catch_error
+	call catch
 	jc >s2
 	mov ah, 03Ch		; open file named at DX
 	mov cl, 0

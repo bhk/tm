@@ -35,11 +35,14 @@ disp_init:
 	call force_redraw	; loads wnd_drawn with 0
 	mov unsaved, al		; undo_init sets unsaved to 0FFh
 	call go_top		; Set point & wnd_ptr; draw screen; set cursor
-	call catch_error	; Top-level catch-error is here...
+	call catch		; Top-level catch-error is here...
 	call mx_halt
 	mov srchmode, al	; srchmode = 0
 mainloop:
-	pushi mainloop		; = "call main_do; jmp mainloop"
+	pushi mainloop		; (pushi HERE; jmp main_do) = (call main_do; jmp HERE)
+	;; jmp main_do
+
+;;; Get a keypress and perform its editing function.
 main_do:
 	shr cutting, 1		; Clear 'cutting' unless last function cut
 	call chk_clr_stat	; See if time to clear status line
@@ -58,29 +61,16 @@ lookup_do:
 	mov di, fn_bindings	; look for key in bindings[]
 	call get_assoc
 	push [di]
-ret_do:	;; "Handler state" implies the following register values:
+handler_state:
+	;; Command handlers (do/go_...), when called from the main loop
+	;; can expect the following register values.  Handlers called
+	;; from elsewhere may document looser "On entry" conditions.
 	mov di, point
 	mov bx, cursor
 	mov dl, newline
 	mov dh, maxY
 	mov si, offset text_mark
 	ret
-
-
-;;; Handler functions (bound to keys) are named "go_..." and "do_...".
-;;; When called from mainloop, they do not need to preserve registers,
-;;; and on entry:
-;;;
-;;;	AL = character typed
-;;;	Other registers defined in "handler state" (above)
-;;;
-;;; On return to the mainloop:
-;;;   - The BIOS cursor is set to `cursor` after every routine returns.
-;;;   - If wnd_ptr is not equal to the previously displayed wnd_ptr,
-;;;     then the page will be redisplayed.
-;;;
-;;; So all they need to to is modify BX, and then call top_up(), top_dn(),
-;;; or do_recenter() if BX moves off the screen.
 
 
 ;;; Remove all CR's from the text.
@@ -94,27 +84,24 @@ do_stripCRs:
 	mov ax, disp_init
 	;; Set SP to as it was before catch, then jump to AX.
 before_catch:
-	mov sp, error_sp
+	mov sp, catch_sp
 	pop bx			; for "add sp,2": skip continuation address
-	pop bx			; for "add sp,2": skip old error_sp
+	pop bx			; for "add sp,2": skip old catch_sp
 	jmp ax
 
 
-;;; Maintains handler state
 do_enter:
 	xchg ax, dx		; for "mov al, dl"  ; DL = newline
 literal:
 	pushi do_literal	; (pushi B; jmps A) is smaller than (call A; jmpl B)
-	jmp ret_do
+	jmp handler_state
 
 
-;;; Maintains handler state
 do_ctrlq:
 	call getkey		; get next key typed
 	jmps literal
 
 
-;;; Maintains handler state
 do_cutappend:
 	mov cutting, 2
 	ret
@@ -199,13 +186,11 @@ e1:	cmp [di], dl		; DL = newline
 	ret
 
 
+;;; go_pgup: Go up DH-1 (maxY-1) lines
+;;;
 u1:	call up1		; DI = point
 	jc ret
 	call top_up
-
-
-;;; Go up DH-1 (maxY-1) lines
-;;;
 go_pgup:
 	dec dh
 	jnz u1
@@ -269,7 +254,8 @@ go_lft_word:
 ;;; On exit: C set => at end of text (DI undefined)
 ;;;	     C clear => not at end; DI = point
 ;;;
-;;; Maintains handler state.
+;;; On entry: --
+;;; Destroys: AL
 ;;;
 go_rgt:	mov di, point
 	call get_next_byte
@@ -290,7 +276,7 @@ g1:	mov targetX, bl
 ;;; On exit: C set => at end of text (DI undefined)
 ;;;	     C clear => not at end; DI = point
 ;;;
-;;; On entry:  DX unused.
+;;; On entry: DI
 ;;;
 go_lft:	call dec_ptr		; move pointer to previous byte in text
 	jc ret			; if already at top of text, we're done now
@@ -304,6 +290,7 @@ go_lft:	call dec_ptr		; move pointer to previous byte in text
 
 ;;; Insert character at point and update display
 ;;;
+;;; On entry: BX, DI
 do_literal:
 	call ins_at_point	; insert AL into text at [point++]
 	mov dx, bx		; DX = BX = original cursor pos
@@ -368,6 +355,8 @@ k1:	mov al, 2
 
 ;;; Backspace and delete character.
 ;;;
+;;; On entry: DI
+;;;
 do_backspace:
 	call go_lft
 	jc ret
@@ -375,6 +364,8 @@ do_backspace:
 
 
 ;;; Delete the character at point.
+;;;
+;;; On entry: BX, DI
 ;;;
 do_delete:
 	mov al, 0		; don't save in cut buffer
@@ -480,6 +471,8 @@ r1:	dec di
 
 ;;; Move to top (start) of text
 ;;;
+;;; On entry: --
+;;;
 go_top:	mov ax, textbuf
 	mov point, ax
 	mov wnd_ptr, ax
@@ -528,7 +521,11 @@ do_dispmode:
 	inc dispmode
 	jmps place_point	; BX = cursor (on entry)
 
-; Place wnd_ptr such that point is in the middle line of the screen.
+
+;;; Place wnd_ptr such that point is in the middle line of the screen.
+;;;
+;;; On entry: --
+;;;
 do_recenter:
 	mov bh, maxY
 	shr bh, 1		; BH = maxY/2
@@ -558,7 +555,7 @@ do_yank:
 	jmps disp_page2
 
 
-; Set cursor, and redraw the screen if wnd_ptr != wnd_drawn.
+;;; Set cursor, and redraw the screen if wnd_ptr != wnd_drawn.
 chk_drawn:
 	mov si, wnd_ptr
 	cmp si, wnd_drawn
@@ -744,7 +741,8 @@ l2:	push cx
 	jmps inc_bx		; increment bl; if bl>maxX then bl=0; bh++
 	;ret			; C set if bh > ah, C not set if bh <= ah
 
-; Move cursor down one line
+;;; Move cursor down one line
+;;;
 go_dn:	call dn1
 	jc ret
 	;; jmp chk_advance	; if cursorH>maxX, call 'top_dn()'
@@ -855,8 +853,10 @@ go_up:	call up1
 ;;; Find cursor position after moving point backwards, without moving
 ;;; 'wnd_ptr', so BX may point off screen (line -1, column 0, for example).
 ;;;
-;;; On entry:	[DI] points to character where cursor will be
-;;;		BX containts cursor position
+;;; On entry:
+;;;	DI = position where cursor will be
+;;;	BX = cursor position
+;;;
 ;;; if bl=0 then bl = wndwid; bh--
 ;;; if [DI] == TABCHAR  or  [DI] == newline then
 ;;;   decrement SI to previous CR (or top of text)
@@ -935,13 +935,13 @@ set_text_cursor:
 ;;; Set the BIOS cursor to BX (BX is considered relative to topleft)
 ;;;
 set_cursor:
-	push ax, bx, dx		; TODO: save/restore BX should not be necessary
+	pusha
 	mov ah, 2		; 2 = set cursor position
 	mov dx, bx		; DH = cursor Y, DL = cursor X
 	add dx, topleft		; WARNING: if xoff+BL exceeds 256....
 	mov bh, 0		; page 0
 	int 010h
-	pop dx, bx, ax
+	popa
 sa_ret:	ret
 
 
@@ -1424,28 +1424,29 @@ set_one_dim:
 	mov d_max, ah		; maxX = disp_cols - 1
 	ret
 
+;;; On entry: --
 do_abort:
 	mov al, msgaborted	; "^G"
 	;; jmp msg_error
 
+;;; On entry: AL = message ID
 msg_error:
 	call disp_status_msg	; Display error message
-	;; jmp jmp_error
-
-
-;;; Transfer control to the previous caller of catch_error.
-;;;
-jmp_error:
 	call beep
-jmp_catch:
-	mov sp, error_sp
+	;; jmp throw_error
+
+
+;;; Transfer control to the previous caller of catch.
+;;;
+throw:
+	mov sp, catch_sp
 	pop ax
 	stc
 	jmps catch_continue
 
 
 ;;; Catch errors that occur.  When initially called, it returns with C clear,
-;;; and a subsequent call to jmp_error will cause it to return *again* with C
+;;; and a subsequent call to throw will cause it to return *again* with C
 ;;; set.  The "catch" remains active until the caller of catch_error returns.
 ;;;
 ;;; ** The function that calls catch_error must call it before pushing any
@@ -1455,14 +1456,14 @@ jmp_catch:
 ;;;	If C is NOT set, return address has been saved.
 ;;;	If C IS set, error has occurred and all registers are corrupted.
 ;;;
-catch_error:
+catch:
 	clc
 	pop ax		; AX = continuation address
-	push error_sp	; Save error_sp of previous catch_error...
-catch_continue:		; Continue at AX (old error_sp is on stack)
+	push catch_sp	; Save catch_sp of previous catch_error...
+catch_continue:		; Continue at AX (old catch_sp is on stack)
 	push ax		; Leave the continuation address on the stack
-	mov error_sp, sp	; And record the continuation stack pointer
+	mov catch_sp, sp	; And record the continuation stack pointer
 	call ax		; continue at caller with [OLDSP, AX, HERE] on stack
 	pop ax		; The calling function is returning...pop continuation
-	pop error_sp
+	pop catch_sp
 	ret		; return to caller's caller

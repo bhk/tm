@@ -82,7 +82,7 @@ ins_at_point:
 ;;;	CX = number of bytes to displace
 ;;; On exit:
 ;;;	SI = byte before OLD point, DI = point (new point)
-;;; If not enough memory jump to "jmp_error".
+;;;     Throws on out-of-memory.
 ;;;
 expand_at_point:
 	push ax
@@ -132,21 +132,15 @@ undo_init:
 	mov cx, 0
 	;; jmp undo_rec_ins
 
-;;; Record insert.
-;;; On entry:  CX = size, point = pos
-;;; On exit:   AX, DI undefined.   CX, SI unchanged.
-undo_rec_ins:
-	mov si, point
-	clc_skip1		; NC => recording insert
-	;; ** must immediately precede stc **
 
-;;; Record delete.
-;;;   On entry:  CX = size, SI = pos
-;;;   On exit:   AX, CX, DI, SI undefined.
-undo_rec_del:
-	stc
+;;; Record insert/delete.
+;;; On entry:  CX = size, point = start of deletion/insertion
+;;;
+undo_rec_ins:	clc_skip1	; clear C => inser
+undo_rec_del:	stc		; set C =>   delete
 	pushf
-	call undo_les		; les di, ub_end and test ES==0
+	mov si, point
+	call get_ubend		; ES:DI = ub_end; Z => no undo
 	jz >u2
 	mov ax, si		; AX = pos
 	stosw			; write POS
@@ -169,7 +163,7 @@ undo_fix_es:
 	ret
 
 
-undo_les:
+get_ubend:
 	les di, ub_end
 	mov ax, es
 	test ax
@@ -178,7 +172,7 @@ undo_les:
 ;;; Read undo record, set point to pos, replace/remove text, update ub_undo_pos
 ;;;
 do_undo:
-	call undo_les
+	call get_ubend		; ES:DI = ub_end; Z => no undo
 	jz undo_fix_es
 	mov si, ub_undo_pos
 	mov ds, ax		; DS = ub_seg
