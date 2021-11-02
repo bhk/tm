@@ -302,7 +302,7 @@ go_lft:	call dec_ptr		; move pointer to previous byte in text
 	call retreat_bx
 	mov cursor, bx
 	call chk_retreat
-	jmp g1
+	jmp g1			; set targetX
 
 
 ;;; Insert character at point and update display
@@ -317,12 +317,13 @@ update_diff_cursor:
 	;; jmp update_diff
 
 
-;;; Display characters from point up to where then screen contents
-;;; are unchanged, and reset targetX to current column.
+;;; Update screen contents from `point` to end of screen, or until
+;;; the previously-drawn location matches the to-be-drawn location.
+;;; Reset targetX.
 ;;;
 ;;; On entry:
-;;;	DX = old cursor position at point before deletion/insertion
-;;;	BX = current cursor position
+;;;	BX = where text is TO BE displayed (cursor position)
+;;;     DX = where text is currently displayed (cursor position)
 ;;;
 update_diff:
 	mov targetX, bl		; set target column for up- & down-line
@@ -354,14 +355,17 @@ l3:	call disp_literal
 ;;; buffer.
 ;;;
 do_kill:
-	;; Find first DL, starting at DI
-	;; while ([DI] != DL && DI <= textbufend) ++DI;
-k1:	call get_next_byte
-	jc >k9
+	mov si, di
+	;; Advance SI to next newline (or textbufend)
+k0:	cmp si, textbufend
+	je >k1
+	lodsb
 	cmp al, dl
-	jne k1
-k9:	dec di
-	mov al, 2		; save in cut buffer
+	jne k0
+	dec si			; position of newline character
+	cmp si, di
+	if e inc si		; delete the newline
+k1:	mov al, 2
 	jmp >d1
 
 
@@ -375,25 +379,27 @@ do_backspace:
 
 ;;; Delete the character at point.
 ;;;
-;;; TODO: why not rely on DI?
-;;;
-do_delete:			; delete point...DI, or point..point+1
+do_delete:
 	mov al, 0		; don't save in cut buffer
-d1:	mov si, point
-	cmp si, textbufend
-	je ret
-	cmp di, si
-	if e inc di		; if DI == point, inc DI (delete one char)
-	mov dx, bx		; DX = BX = cursor position
-	push ax, si
-	call advance_to_di	; Advance from SI to DI, updating BX
+	cmp di, textbufend
+	je ret			; at end of text
+	mov si, di
+	inc si			; delete one byte
+d1:	;; now: DI...SI describes region to delete
+	mov dx, bx		; DX = BX = cursor position at DI
+	push ax, di
+	;; Find screen location of the end of the region (for update_diff)
+	xchg di, si		; SI = start; DI = end
+	call advance_to_di	; BX = cursor pos where region ends; SI = region end
+	;; Modify buffer
 	pop di, ax		; DI = start of region, SI now is at end
-	xchg dx, bx		; DX = cursor pos. at end of line
 	call delete_di_to_si
+	;; Update screen
 	mov ax, point
-	cmp ax, wnd_ptr		; backspace may have moved DI off screen
-	jb ret			; screen will have to be re-drawn
-	jmp update_diff
+	cmp ax, wnd_ptr		; If backspace may have moved DI off screen,
+	jb ret			;   screen will have to be re-drawn.
+	xchg dx, bx		; BX = where to display ; DX = where text WAS displayed
+	jmp update_diff		; update display from point to end of screen
 
 
 ;;; Scroll text down one line on screen.

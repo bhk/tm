@@ -67,8 +67,8 @@ s2:	mov es, cb_seg		; es:di = cb_seg:cb_size = destination
 
 ;;; Insert AL at point, and increment point.
 ;;; On exit:
-;;;	DI = point
-;;;	SI = point - 2
+;;;	DI = (new) point
+;;;	SI = (new) point - 2
 ;;;	CX == 1
 ;;;
 ins_at_point:
