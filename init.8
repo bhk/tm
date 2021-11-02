@@ -107,7 +107,7 @@ dispmode	db 0		; Specifies representation of ctrl chars
 
 changes		label word	; Set 'unsaved' and 'deleted' at one time
 unsaved		db 0		; 0FFh if there are unsaved changes
-deleted		db 0		; set when the previous function deleted text
+cutting		db 0		; set when the previous key added to the cut buffer
 wnd_ptr		dw ?		; = Where in text the top-left of screen is.
 wnd_drawn	dw ?		; value of 'wnd_ptr' at time of last disp_page
 point		dw ?		; Current edit point in text (where cursor is)

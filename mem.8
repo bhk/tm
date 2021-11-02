@@ -16,49 +16,52 @@ dec_ptr:
 	cmp di, textbuf
 	ret
 
-;;; Delete a block of bytes from the text.  jmp_error if cut buffer is full.
+;;; Delete a region of bytes from the text.
+;;;
 ;;; On entry:
+;;;	AL = 2 => move bytes to cut buffer;  0 => discard
 ;;;	DI = first byte of block
 ;;;	SI = byte after block
+;;; On exit:
+;;;	Destroys CX
 ;;;
 delete_di_to_si:		; source = SI...textbufend, destination = DI
-	push cx, si		; Stack = CX, SI
+	push si, di
 	mov cx, si
-	sub cx, di		; CX = # bytes to delete
-	mov si, di		; SI = DI = start of block
-	call save_deletion
-	push di			; Stack = CX, SI, DI
-	call undo_rec_del	; Record deletion at SI, of length CX
-	pop di, si		; Stack = CX
+	sub cx, di		; # bytes to delete
+	mov si, di		; start of block
+	test al			; Z => do not add to cut buffer
+	xchg al, cutting	; set cutting status & get previous status
+	if nz call copy_region
+	call undo_rec_del	; Record deletion SI[0..CX]
+	pop di, si
 	mov cx, textbufend
 	sub cx, si		; CX = # of bytes to move
 	rep movsb		; move [SI...textbufend] to [point...?]
 	mov textbufend, di
-	pop cx
 	ret
 
 
 ;;; On entry:
 ;;;	SI = DI = first byte to be deleted
-;;; On exit:
-;;;	No registers changed.
+;;;	CX = number of bytes
+;;;	AL = 0 => clear buffer; nonzero => append to cut buffer
 ;;;
-save_deletion:
+copy_region:
 	pusha
-	clear ax
-	test deleted		; See if cut buffer should be cleared.
-	js >s9			; If this is backspace, skip to end
-	if nz add ax, cb_size	; If not, write onto end of buffer
-	mov di, ax
-	add ax, cx
-	cmp ax, cb_limit	; see if resulting size exceeds maximum
-	mov al, msgcutfull	; say "Cut buffer full!"
+	mov di, cb_size		; position in cut buffer
+	test al
+	if z mov di, 0		; previous command was not a cut command
+	mov ax, cb_limit
+	sub ax, di		; available space in cut buffer
+	cmp cx, ax		; fits?
+	mov al, msgcutfull	; "Cut buffer full!"
 	ja jmp_msg_error
 s2:	mov es, cb_seg		; es:di = cb_seg:cb_size = destination
-	rep movsb
+	rep movsb		; *DI++ = *SI++  x  CX
 	mov es, cs
 	mov cb_size, di
-s9:	popa
+	popa
 	ret
 
 
@@ -135,6 +138,7 @@ undo_init:
 undo_rec_ins:
 	mov si, point
 	clc_skip1		; NC => recording insert
+	;; ** must immediately precede stc **
 
 ;;; Record delete.
 ;;;   On entry:  CX = size, SI = pos
@@ -143,7 +147,7 @@ undo_rec_del:
 	stc
 	pushf
 	call undo_les		; les di, ub_end and test ES==0
-	jz undo_save_ret
+	jz >u2
 	mov ax, si		; AX = pos
 	stosw			; write POS
 	mov ax, cx		; AX = CX = size
@@ -158,8 +162,7 @@ u1:	stosw			; store size
 	mov ub_pos, ax
 	mov ub_undo_pos, ax
 	push ax
-undo_save_ret:
-	pop ax
+u2:	pop ax
 	mov unsaved, 0ffh	; Deletes and inserts change the buffer...
 undo_fix_es:
 	mov es, cs		; restore ES
