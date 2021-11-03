@@ -56,7 +56,7 @@ f1:	add ax, dx		; AX = no. of bytes + textbuf
 	call fclose_bx
 	test verbatim
 	if z call remove_CRs	; remove CR's if NOT verbatim
-	cmp b[msg0-1], 'y'
+	test initial_newline
 	jz ret			; return now if being called at startup
 	mov al, msgloaded
 	jmps l_disp_status_msg	; say:  Loaded "filename"
