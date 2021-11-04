@@ -58,15 +58,17 @@ ub_seg		dw 0		; ub_init assumes ub_limit follows ub_seg.
 ub_limit	dw ?
 ub_undo_pos	dw ?
 
-;;;  Cut buffer
+;;; Cut buffer
 
-	;; The ordering of cb_eg and cb_limit is significant;
-	;; refer to init_bufs.
+	;; The ordering of cb_eg and cb_limit is significant; see init_bufs.
 cb_end		dq
 cb_size		dw 0		; number of bytes in the cut buffer
 cb_seg		dw ?		; segment pointer to start of cut buffer
 cb_limit	dw ?		; maximum size of the cut buffer
 
+;;; Misc.
+
+init_level	db 0
 catch_sp	dw ?		; SP saved by catch
 
 ;;; Display location

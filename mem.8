@@ -274,5 +274,6 @@ l9:	mov dx, dosmsg4		; say "You're screwed."
 	jmp err_exit
 
 
-initial_newline	db 0		; needed by certain routines
+;;; This serves as a backstop for reverse searches.
+initial_newline	db 0
 textbuf		equ $

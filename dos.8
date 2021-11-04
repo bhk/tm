@@ -16,8 +16,8 @@ save_and_find:
 load_named:
 	mov dl, msgloadfile
 	call edit_name
-	mov ax, reset_load
-	jmp before_catch	; Restart at reset_load
+	mov init_level, 0
+	jmp throw
 
 
 ;;; Load file into the text buffer.  This may leave editing-related variables
@@ -56,7 +56,7 @@ f1:	add ax, dx		; AX = no. of bytes + textbuf
 	call fclose_bx
 	test verbatim
 	if z call remove_CRs	; remove CR's if NOT verbatim
-	test initial_newline
+	test init_level
 	jz ret			; return now if being called at startup
 	mov al, msgloaded
 	jmps l_disp_status_msg	; say:  Loaded "filename"

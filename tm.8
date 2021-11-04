@@ -22,24 +22,28 @@ start:	mov ax, sp		; SP starts at the end of our 64KB(?) segment ;
 	mov si, banner
 	call disp_stat_col
 
-reset_load:
-	call load_file		; load file if name is set
-
-;;; Initialize all variables dealing with displaying the text, and
-;;; reset macro record/playback state.
-;;;
-disp_init:
+i0:	mov al, init_level
+	cmp al, 1
+	je >i1
+	ja >i2
+	;; Init level 0: load file (if there is a file name)
+	call load_file
+i1:	;; Init level 1: Initialize display state
 	mov al, newline
 	mov initial_newline, al	;  [textbuf - 1] exposed an assembler bug!
 	call undo_init
 	call force_redraw	; loads wnd_drawn with 0
 	mov unsaved, al		; undo_init sets unsaved to 0FFh
 	call go_top		; Set point & wnd_ptr; draw screen; set cursor
+i2:	;;  Init level 2: Cancel macro and search modes
 	call catch		; Top-level catch-error is here...
+	jc i0
+	mov init_level, 2
 	call mx_halt
 	mov srchmode, al	; srchmode = 0
-mainloop:
-	pushi mainloop		; (pushi HERE; jmp main_do) = (call main_do; jmp HERE)
+
+	;; Main loop...
+l0:	pushi l0		; (pushi HERE; jmp main_do) = (call main_do; jmp HERE)
 	;; jmp main_do
 
 ;;; Get a keypress and perform its editing function.
@@ -71,23 +75,6 @@ handler_state:
 	mov dh, maxY
 	mov si, offset text_mark
 	ret
-
-
-;;; Remove all CR's from the text.
-;;;
-do_stripCRs:
-	call remove_CRs
-	;; Restart at disp_init (reload SP & jump)
-	;;call catch_reset	; Reset SP to before catch_error
-	;;jmp disp_init
-	;; Alternative code:
-	mov ax, disp_init
-	;; Set SP to as it was before catch, then jump to AX.
-before_catch:
-	mov sp, catch_sp
-	pop bx			; for "add sp,2": skip continuation address
-	pop bx			; for "add sp,2": skip old catch_sp
-	jmp ax
 
 
 do_enter:
@@ -1424,46 +1411,65 @@ set_one_dim:
 	mov d_max, ah		; maxX = disp_cols - 1
 	ret
 
+;;; Remove all CR's from the text.
+;;;
+do_stripCRs:
+	call remove_CRs
+	mov init_level, 1	; re-init display state
+	jmps throw
+
+
 ;;; On entry: --
 do_abort:
 	mov al, msgaborted	; "^G"
 	;; jmp msg_error
 
+
 ;;; On entry: AL = message ID
 msg_error:
 	call disp_status_msg	; Display error message
 	call beep
-	;; jmp throw_error
+	;; jmp throw
 
 
-;;; Transfer control to the previous caller of catch.
+;;; Transfer control to the current catcher.
 ;;;
-throw:
-	mov sp, catch_sp
+throw:	mov sp, catch_sp
 	pop ax
 	stc
-	jmps catch_continue
+	ret
 
 
-;;; Catch errors that occur.  When initially called, it returns with C clear,
-;;; and a subsequent call to throw will cause it to return *again* with C
-;;; set.  The "catch" remains active until the caller of catch_error returns.
+;;; Initiate catching.  When initially called, it returns with C clear,
+;;; and catching will remain active until the caller issues a RET.  If a
+;;; throw is caught, it "returns again" with C set and catching inactive.
 ;;;
-;;; ** The function that calls catch_error must call it before pushing any
-;;; values so that the caller's return addr will be on the top of the stack.
+;;; A function calling catch must call it before pushing any values onto
+;;; the stack, so that *its* caller's return address will be at the top.
+;;; The initial call to catch pushes the following values onto the stack:
+;;;
+;;;     handler (the instruction after "call catch")
+;;;     previous catch_sp
+;;;     c1 (cleanup code)
+;;;
+;;; At this point, a RET instruction will jump to c1, which will pop the
+;;; other two values and return to the caller's caller.   In the event
+;;; of a throw -- when catch returns with C set -- the SP will have its
+;;; original value.
 ;;;
 ;;; On return:
 ;;;	If C is NOT set, return address has been saved.
 ;;;	If C IS set, error has occurred and all registers are corrupted.
+;;;     Destroys AX.
 ;;;
-catch:
+
+catch:	pop ax
+	push ax			; our return address is the handler
+	push catch_sp		; save previous catch_sp
+	mov catch_sp, sp
 	clc
-	pop ax		; AX = continuation address
-	push catch_sp	; Save catch_sp of previous catch_error...
-catch_continue:		; Continue at AX (old catch_sp is on stack)
-	push ax		; Leave the continuation address on the stack
-	mov catch_sp, sp	; And record the continuation stack pointer
-	call ax		; continue at caller with [OLDSP, AX, HERE] on stack
-	pop ax		; The calling function is returning...pop continuation
+	call ax
+c1:	;; clean up stack & return to caller's caller
 	pop catch_sp
-	ret		; return to caller's caller
+	add sp, 2
+	ret
