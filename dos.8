@@ -1,19 +1,25 @@
 ;;; dos.8 : MS-DOS file-related routines.
 
-public load_file, save_file, remove_CRs, find_file, save_as, save_and_find
+public load_file, opt_save, remove_CRs, opt_load, opt_save_as, opt_load_save
 
-find_file:
-	call filetest
+
+;;; Load a new file (^X^F)
+;;;
+opt_load:
+	call get_filename
 	and al, b[di]		; AL = filename && unsaved
-	jz load_named		; If no name, or no unsaved changes, load file
-	mov si, LOADmenu	; Else ask "Lose changes?"
-	jmp show_menu
+	jz opt_replace		; If no name, or no unsaved changes, load file
+	mov si, load_menu	; Else ask "Lose changes?"
+	jmp menu_show
 
-save_and_find:
-	call save_file
-	;; jmp load_named
 
-load_named:
+;;; Save changes before loading a new file
+;;;
+opt_load_save:
+	call opt_save
+	;; jmp opt_replace
+
+opt_replace:
 	mov dl, msgloadfile
 	call edit_name
 	mov init_level, 0
@@ -30,7 +36,7 @@ load_named:
 ;;;    All registers undefined.
 ;;;
 load_file:
-	call filetest		; DX = ARGBUF, DI = &unsaved, Z = (b[DX] == 0)
+	call get_filename	; DX = ARGBUF, DI = &unsaved, Z = (b[DX] == 0)
 	;;mov b[di], 0		; for "mov unsaved, 0"
 	mov textbufend, textbuf	; Leave buffer in a known state
 	jz ret			; Return if no filename
@@ -50,26 +56,26 @@ load_file:
 	jne >f1			;   file is too big
 	mov b[si], 0		; (SI=ARGBUF)
 	mov al, msgfilebig
-	jmps l_disp_status_msg
+	jmps l_draw_status
 f1:	add ax, dx		; AX = no. of bytes + textbuf
 	mov textbufend, ax	; set end of text area
-	call fclose_bx
+	call fclose
 	test verbatim
 	if z call remove_CRs	; remove CR's if NOT verbatim
 	test init_level
 	jz ret			; return now if being called at startup
 	mov al, msgloaded
-	jmps l_disp_status_msg	; say:  Loaded "filename"
+	jmps l_draw_status	; say:  Loaded "filename"
 
 f2:	;;  Distinguish error from file-not-found
 	cmp al, 2		; 2 => file not found
 	;; mov al, msgnewfile	; msgnewfile == 2
-	jz l_disp_status_msg
+	jz l_draw_status
 f3:	;; Error
 	mov al, msgreaderror
 	;; Abort with message AL
-l_disp_status_msg:
-	jmp disp_status_msg	; Display message and return
+l_draw_status:
+	jmp draw_status		; Display message and return
 
 
 ;;; Set DX = textbuf, CX = size of text
@@ -81,8 +87,9 @@ get_size:
 	sub cx, dx
 	ret
 
+;;; Close file handle BX.
 ;;; Throws on error.
-fclose_bx:
+fclose:
 	mov ah, 03Eh
 	jmps dosint
 
@@ -108,23 +115,16 @@ dosint:	int 021h
 
 ;;; Ask for file name and save file
 ;;;
-save_as:
+opt_save_as:
 	mov dl, msgsavefile
 	call edit_name
-	;; jmp save_file
+	;; jmp opt_save
 
-;;; Save file to disk. Throws on error.
+;;; Save file to disk. (^X^S)
 ;;;
-;;;    If (!verbatim) then output all LF's as CR/LF's, using the following
-;;; loop:
-;;;	1. Output all bytes up to the next LF.
-;;;	   (If no LF, output rest of the text and return).
-;;;	2. Output CR/LF and advance past the LF.
-;;;	3. goto 1
-;;;
-save_file:
-	call filetest
-	jz save_as
+opt_save:
+	call get_filename
+	jz opt_save_as
 	call catch
 	jc >s2
 	mov ah, 03Ch		; open file named at DX
@@ -132,11 +132,11 @@ save_file:
 	call dosint
 	xchg ax, bx		; for "mov bx, ax";  BX = file handle
 	call write_text
-	call fclose_bx
+	call fclose
 	mov unsaved, 0
 	mov al, msgfilesaved
-s1:	jmp l_disp_status_msg
-s2:	call disp_page		; fix screen after DOS "Abort...?" msg
+s1:	jmp l_draw_status
+s2:	call draw_page		; fix screen after DOS "Abort...?" msg
 	mov al, msgerrorsaving	; say "Error saving file"
 	jmp s1
 
@@ -201,10 +201,10 @@ edit_name:
 	jnz >e1
 e0:	mov b[si], 0		; start with new file name
 e1:	mov al, dl
-	call disp_status_msg
+	call draw_status
 	mov si, bp
 	mov al, 32
-l0:	call disp_char
+l0:	call draw_text_cell
 l1:	lodsb
 	test al
 	jnz l0
@@ -235,13 +235,14 @@ en_bak:	dec si
 	jb e1
 	jmp e0
 
-	;; Initialize registers and test b[ARGBUF]
-filetest:
+;;; Initialize registers & set Z if file name is not set.
+;;;
+get_filename:
 	mov di, offset unsaved
 	mov si, ARGBUF
 	mov dx, si
 	mov al, b[si]
-	test al			; test filename
+	test al
 	ret
 
 
@@ -257,6 +258,8 @@ filetest:
 ;;;     address named in the matching dvect.
 ;;; If no match is found, the function jumps (returns to) the address
 ;;;     following the terminating "db 0".
+;;;
+;;; Destroys AX, DI
 ;;;
 dispatch_key:
 	call getkey

@@ -113,13 +113,13 @@ srch_input:
 	or al, srchmode		; If srchmode==3, AL = msgrplc
 	cbw
 	mov bp, ax		; BP = msgsrch, msgrsrch, msgnotfound, msgrplc
-	call mov_point_di
-	push si, di		; save these before disp_page destroys them
+	call set_point
+	push si, di		; save these before draw_page destroys them
 	call chk_point		; calculate & set cursor position
 	push wnd_ptr		; stack contains:  SI, DI, wnd_ptr
 	mov ax, bp
 srch_dispmsg:
-	call disp_status_msg	; display "Search: "
+	call draw_status	; display "Search: "
 	call srch_dispstr	; show string AND set:  SI=srchend, CX=srchbuf
 	cmp bp, msgrplc		; test srchmode
 	if ae jmp rplc_query
@@ -149,10 +149,10 @@ l1:	pop bx, di, si
 	jne l1			; pop state while not
 	cmp al, 7
 	jne >l2
-	call mov_point_di	; If Ctrl-G,
+	call set_point		; If Ctrl-G,
 	mov wnd_ptr, bx		;    restore point & wnd_ptr
 l2:	mov srchmode, 0
-	call chk_clr_stat
+	call maybe_clear_status
 	jmp chk_point		; Return from do_search.
 
 srch_rplc:
@@ -233,13 +233,13 @@ rplc_play:
 	cmp al, srchmode
 	jbe >l1                 ; we're already replacing
 	mov srchmode, al        ; srchmode=3 indicating we're replacing now
-	call disp_status_msg
+	call draw_status
 
 	;; cmp bp, msgrplc	; BP is either "...Search: " or "Replace"
 	;; je >l1
 	;; mov al, 3		; msgedit == 3
 	;; mov srchmode, al	; srchmode=3 ; in search & replace now
-	;; call disp_status_msg
+	;; call draw_status
 
 	mov si, mx_record	; call mx_record with AX=0
 l1:	mov al, 18		; Ctrl-R represents the search/replace macro
@@ -292,11 +292,11 @@ srch_dispstr:
 	mov si, cx		; Display srchbuf
 	jmp >l2
 l1:	lodsb
-	call disp_char
+	call draw_text_cell
 l2:	cmp si, srchend
 	jne l1
 	mov al, srch_cursor
-	call disp_char		; Display "search cursor"
+	call draw_text_cell	; Display "search cursor"
 	jmp set_text_cursor	; Put the BIOS cursor in the text area
 
 ;;; Set srchend, srchtextmax, and DX

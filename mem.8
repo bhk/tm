@@ -56,7 +56,7 @@ copy_region:
 	sub ax, di		; available space in cut buffer
 	cmp cx, ax		; fits?
 	mov al, msgcutfull	; "Cut buffer full!"
-	ja jmp_msg_error
+	ja jmp_error_msg
 s2:	mov es, cb_seg		; es:di = cb_seg:cb_size = destination
 	rep movsb		; *DI++ = *SI++  x  CX
 	mov es, cs
@@ -107,8 +107,8 @@ expand_at_point:
 	pop cx
 	ret
 l5:	mov al, msgtextfull	; say "text buffer full"
-jmp_msg_error:
-	jmp msg_error
+jmp_error_msg:
+	jmp error_msg
 
 
 ;;; Insert cut buffer into text at point.
@@ -193,7 +193,7 @@ do_undo:
 	jnz >l1
 l0:	mov ds, cs
 	mov al, msgnomore
-	jmp jmp_msg_error
+	jmp jmp_error_msg
 l1:	cmp di, ax
 	jbe l0			; go if out of room
 	test bl, 1		; 1 => undoing a deletion
@@ -223,8 +223,8 @@ i2:	pop si
 	mov ds, cs
 	mov point, ax
 i3:	mov al, msgundo
-	call disp_status_msg
-	jmp disp_page
+	call draw_status
+	jmp draw_page
 
 
 ;;; Allocate cut buffer and undo buffer.

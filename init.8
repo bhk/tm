@@ -110,7 +110,7 @@ changes		label word	; Set 'unsaved' and 'deleted' at one time
 unsaved		db 0		; 0FFh if there are unsaved changes
 cutting		db 0		; set when the previous key added to the cut buffer
 wnd_ptr		dw ?		; = Where in text the top-left of screen is.
-wnd_drawn	dw ?		; value of 'wnd_ptr' at time of last disp_page
+wnd_drawn	dw ?		; value of 'wnd_ptr' at time of last draw_page
 point		dw ?		; Current edit point in text (where cursor is)
 text_mark	dw 0		; Current mark setting (0 indicates not set)
 textbufend	dw textbuf	; Points to byte after end of text.
@@ -118,28 +118,28 @@ textbufend	dw textbuf	; Points to byte after end of text.
 ;;; Text display settings
 
 defcolor	db 0Eh		; default color
-hlt_and_inv	dw		; get hlt and inv at once
-hltcolor	db 7		; highlighted color
+inv_and_hlt	dw		; get hlt and inv at once
 invcolor	db 020h		; inverse color
+hltcolor	db 7		; highlighted color
 tabwid		db 8		; "-tX" changes this.
-crlf		db 13		; Used by save_file().  (If newline changes,
+crlf		db 13		; Used by opt_save.  (If newline changes,
 		;db 10		; then verbatim is set & crlf won't be used!)
 newline		db 10		; character denoting end of logical line (-nX)
 				; If "-n.." is given, verbatim should be set!
 
 ;;; Menu definition macro
 
-menudef MACRO
-#1menu:	db #2, 0		; #1 = label prefix, #2 = menu prompt
-	db #3			; #3 = no. of menu options
-	dw #1menuL		; label for list of action letters
-  #rx4l
-	dw #x			; jump vectors for actions  (4, 6, 8, ...)
-  #e2
+menudef MACRO ; label prompt count [vector name]+
+#1:	db #2		; prompt message
+	db #3		; count (number of options)
+	dw #1_L		; keymap
   #ry5l
-	db #y, 0		; strings for actions	(#5, 7, 9, ...)
+	db #y		; option names (5, 7, 9, ...)
   #e2
-#1menuL: db			; define label for list of action letters
+  #rx4l
+	dw #x		; option vectors (4, 6, 8, ...)
+  #e2
+#1_L: db
 #EM
 
 dvect MACRO db #1, (#2 - $) #EM
@@ -213,13 +213,12 @@ msgerrorsaving	equ 30
 msgloaded	equ 36
 msgnomore	equ 42
 msgundo		equ 43
+msgbanner	equ 52
 
 dosmsg3:	db 'TM: bad argument$'
 dosmsg4:	db 'TM: Not enough memory$'
 
-banner:	db 'TM 1.5'
 msg0:	db 0
-msgfilesaved_addr:
 	db -39, 'd', -40, 0			;  1 Saved "<fnm>"
 	db 'New', -31, -40, 0			;  2 New file: "<fnm>"
 	db 'Type ^S when done...', 0		;  3 Type ^S when done...
@@ -270,21 +269,23 @@ msgfilesaved_addr:
 	db 'Yes', 0				; 48 Yes
 	db -35, ':', -40, ' un', -34, -18, 0	; 49 Load: "FILE" unsaved
 	db -39, -37, 0				; 50 Save changes
+	db 'Option:', 0                         ; 51 Option
+	db 'TM 1.5', 0				; 52 TM 1.5
 
-menudef ESC, 'Option:', 4, save_file, -39, save_as, -46, find_file, -35, chk_exit, -24
+menudef esc_menu, 51, 4, opt_save, 39, opt_save_as, 46, opt_load, 35, opt_quit, 24
 	bind_b 1, 'S', 19		; 'S' and ctrl-S execute "Save"
 	bind_b 2, 'A', 23		; 'A' and ctrl-W execute "save As"
 	bind_b 3, 'L', 6		; 'L' and ctrl-F execute "Load"
 	bind_b 4, 'Q', 3		; 'Q' and ctrl-C execute option 2
 	db 0
 
-menudef EXIT, -45, 3, menuret, -47, exit_to_dos, -48, save_and_exit, -39
+menudef exit_menu, 45, 3, opt_done, 47, opt_quit_y, 48, opt_quit_save, 39
 	bind_b 1, 'N'
 	bind_b 2, 'Y'
 	bind_b 3, 'S'
 	db 0
 
-menudef LOAD, -49, 2, save_and_find, -50, load_named, -38
+menudef load_menu, 49, 2, opt_load_save, 50, opt_replace, 38
 	bind_b 1, 'S'
 	bind_b 2, 'R'
 	db 0
@@ -324,7 +325,7 @@ fn_bindings:
 	bind do_delete, 4, -83		; ctrl-D, Delete
 	bind do_kill, 11, -117		; ctrl-K, ctrl-End
 	bind do_ctrlq, 17		; ctrl-Q
-	bind do_menu1, 24, 27		; ctrl-X, ESC
+	bind do_esc, 24, 27		; ctrl-X, ESC
 	bind do_yank, 25		; ctrl-Y
 	bind do_cutappend, -30		; Alt-A
 	bind do_setmark, -3		; Ctrl-@, Alt-= (-131 -> -3)

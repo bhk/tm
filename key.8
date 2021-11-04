@@ -34,7 +34,7 @@ a0:	mov si, mxsp		; Save current ptr on mx stack
 	cmp si, mxdefsend	; Is stack full?
 	jae >a1
 	mov al, msgloop
-	jmp msg_error
+	jmp error_msg
 a1:	mov ax, mxptr		; Save current mxptr in mxstack
 	mov [si], ax
 	mov mxsp, si
@@ -91,7 +91,7 @@ do_makemx:
 	add al, 45		; Alt-Fx -> Fx
 	push ax
 	mov al, msgrecording
-	call disp_status_msg
+	call draw_status
 	pop ax
 	;; jmp mx_record
 
@@ -134,7 +134,7 @@ mx_stop:
 	mov mxdefsend, di	; mxdefsend = end of used portion of buffer
 	mov mxrecptr, ax	; stop recording
 	mov al, msgmxdone	; "Macro recorded"
-	jmp disp_status_msg
+	jmp draw_status
 
 
 ;;; Advance DI to start of macro AH, setting CX to textbufend - DI.
@@ -200,4 +200,4 @@ g9:	mov mxrecptr, di
 
 	;; Error . . . Out of macro space.
 e1:	mov al, msgmxfull	; say "Macro buffer full."
-	jmp msg_error
+	jmp error_msg
