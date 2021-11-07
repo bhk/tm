@@ -17,7 +17,6 @@ start:	mov ax, sp		; SP starts at the end of our 64KB(?) segment ;
 	call check_display	; set scrwid, scrhgt, and screen_seg
 	call scan_args		; read args & set appropriate variables
 	call set_dimensions	; fix xoff, yoff, maxX, & maxY, etc.
-	call use_defcolor	; set color to default color
 	mov al, msgbanner
 	mov ah, invcolor
 	call draw_status_color
@@ -676,7 +675,7 @@ draw_text_cell:
 ;;; Destroys: AL
 ;;;
 draw_cell:
-	mov ah, color
+	mov ah, txtcolor
 draw_cell_color:
 	push cx
 	mov cx, 1
@@ -1087,7 +1086,7 @@ clear_status:
 ;;; Destroys: AX, CX
 ;;;
 clear_eol_color:
-	mov ah, color
+	mov ah, txtcolor
 clear_eol:
 	mov cl, disp_cols
 	sub cl, bl
@@ -1216,11 +1215,6 @@ l1:	lodsb
 	mov bl, al
 	call set_cursor
 	pop si, bx
-	;; jmp use_defcolor
-
-use_defcolor:
-	mov al, defcolor
-	mov color, al
 	ret
 
 

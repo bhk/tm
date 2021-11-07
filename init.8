@@ -22,7 +22,7 @@ code segment
 
 main:	jmp start
 
-color		db ?		; current color
+init_level	db 0		; use up (and zero-intialize) the extra byte before EVEN
 
 EVEN
 
@@ -68,7 +68,6 @@ cb_limit	dw ?		; maximum size of the cut buffer
 
 ;;; Misc.
 
-init_level	db 0
 catch_sp	dw ?		; SP saved by catch
 
 ;;; Display location
@@ -117,7 +116,7 @@ textbufend	dw textbuf	; Points to byte after end of text.
 
 ;;; Text display settings
 
-defcolor	db 0Eh		; default color
+txtcolor	db 0Eh		; color for document text
 inv_and_hlt	dw		; get hlt and inv at once
 invcolor	db 020h		; inverse color
 hltcolor	db 7		; highlighted color
@@ -351,7 +350,7 @@ argbindings:
 	bind disp_cols, 'w'
 	bind disp_lines, 'l'
 	bind newline, 'n'
-	bind defcolor, 'c'
+	bind txtcolor, 'c'
 	bind invcolor, 'i'
 	bind hltcolor, 'h'
 	bind screen_page, 'b'	; set 'screen_page' to pre-defined value
