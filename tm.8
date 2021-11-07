@@ -603,18 +603,6 @@ draw_eol:
 	jmp advance_newline	; return with C not set if BH on screen
 
 
-;;; Display character.  If at end of screen, pop 2 words and then return.
-;;; On exit, C set => past end of screen.
-;;;
-draw_text_cell_and_ret:
-	call draw_text_cell
-	jc >d9
-	test bl
-	jnz ret
-d9:	pop ax, ax		; return address; value pushed in draw_char
-	ret
-
-
 ;;; Display a character from the document in one or more display cells, and
 ;;; advance to the next row/col. Control characters and 8-bit characters might
 ;;; occupy 2 or 3 cells, depending on dispmode.  TAB and NEWLINE may clear
@@ -622,7 +610,7 @@ d9:	pop ax, ax		; return address; value pushed in draw_char
 ;;;
 ;;; On entry: AL = character, BX = row/rol on display
 ;;; On exit:  BX = next row/col
-;;; Destroys: AL modified (if NEWLINE or TAB on entry)
+;;; Destroys: AX
 ;;;
 draw_char:
 	test al, not 31
@@ -637,25 +625,30 @@ draw_char:
 	;; dispmode.1 = UPPER ASCII attribute (0 = graphics character, 1="\nn")
 	push ax
 	mov al, '^'
-	call draw_text_cell_and_ret
+	call draw_text_cell
 	pop ax
+	jc ret			; at end of screen
 	add al, 64
 	;; Check upper-ASCII characters
-l1:	jns >l2			; If not an 8-bit character, skip to draw_text_cell
+l1:	jns draw_text_cell	; not an 8-bit character
 	test dispmode, 2
-	jz >l2
+	jz draw_text_cell	; literal characters, not "\XX"
 	push ax
 	mov al, '\'
-	call draw_text_cell_and_ret
+	call draw_text_cell	; write "\"
 	pop ax
+	jc ret			; at end of screen
 	push ax
 	shr4 al
-	call get_hd_val
-	call draw_text_cell_and_ret
+	call >h1		; write first hex digit
 	pop ax
+	jc ret			; at end of screen
 	and al, 15
-	call get_hd_val
-l2:	;; jmp draw_text_cell
+h1:	;; draw hex digit for low 4 bits of AL
+	add al, 48
+	cmp al, '0'+10
+	if ae add al, 'A'-'9'-1
+	;; jmp draw_text_cell
 
 
 ;;; Write a character in the text buffer region: The rightmost column of
@@ -663,7 +656,7 @@ l2:	;; jmp draw_text_cell
 ;;;
 ;;; On entry: AL = character, BX = position in window
 ;;; On exit:  BX = new cursor position, C flag set if BX is off screen
-;;; Destroys: AX, ES
+;;; Destroys: AX
 ;;;
 draw_text_cell:
 	cmp al, 13
@@ -680,7 +673,7 @@ x2:	mov ah, invcolor
 ;;; Write a display character in the current color and advance.
 ;;; On entry: AL = character, BX = row/col
 ;;; On exit: BX = next row/col
-;;; Destroys: AH, ES
+;;; Destroys: AH
 ;;;
 draw_cell:
 	mov ah, color
@@ -1076,7 +1069,7 @@ maybe_clear_status:
 
 
 ;;; Clear the status line.
-;;; Destroys: AX, BX, CX, ES
+;;; Destroys: AX, BX, CX
 ;;;
 opt_done:
 clear_status:
@@ -1086,7 +1079,7 @@ clear_status:
 	;; jmp clear_eol
 
 ;;; Clear from BX to end of line.
-;;; Destroys: AX, CX, ES
+;;; Destroys: AX, CX
 ;;;
 clear_eol:
 	mov cl, disp_cols
@@ -1099,29 +1092,25 @@ clear_eol:
 
 ;;; Write characters to a text-mode display cell.
 ;;; On entry: AL = character, AH = attribute, BH/BL = row/col, CX = reps
-;;; Destroys: AH, CX, ES
+;;; Destroys: AH, CX
 ;;;
 draw_cells:
 	push bx
 	test screen_page
 	jz >l1
 	;; Write directly to video buffer
+	push es, di
 	mov es, screen_seg
-	push di
-
-	;; Calculate address on screen
 	xchg ax, di
 	add bx, topleft		; adjust for positioning of topleft
-	mov al, bh
-	mul scrwid		; AX = scrwid*line
+	mov al, scrwid
+	mul bh			; AX = scrwid*line
 	mov bh, 0
 	add ax, bx		; AX = scrwid*line + column
 	add ax, ax
 	xchg ax, di		; DI = address, AX = original value
-
 	rep stosw		; store CX char/attribute pairs at ES:[DI++]
-	pop di
-	mov es, ds
+	pop di, es
 	jmp >l2
 	;;   Use BIOS to display character
 l1:	call set_cursor		; put cursor at BX
@@ -1276,12 +1265,6 @@ c1:	mov screen_page, al	;  else !=0 and !=1 ==>  use as segment MSB
 	mov hgt_and_wid, ax	; hgt=AH, wid=AL
 	ret
 
-
-get_hd_val:
-	add al, 48
-	cmp al, '0'+10
-	if ae add al, 'A'-'9'-1
-	ret
 
 ;;; Set Z if [DI] is a whitespace character
 ;;;
