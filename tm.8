@@ -51,7 +51,7 @@ l0:	pushi l0		; (pushi HERE; jmp main_do) = (call main_do; jmp HERE)
 ;;; Get a keypress and perform its editing function.
 main_do:
 	shr cutting, 1		; Clear 'cutting' unless last function cut
-	call maybe_clear_status	; See if time to clear status line
+	call maybe_clear_status
 	call chk_drawn		; cmp wnd_ptr, wnd_drawn
 	if nz call draw_page
 	call set_text_cursor
@@ -598,7 +598,7 @@ draw_tab:
 ;;;		C flag set if BX is off screen
 draw_eol:
 	push cx
-	call clear_eol
+	call clear_eol_color
 	pop cx
 	jmp advance_newline	; return with C not set if BH on screen
 
@@ -659,25 +659,26 @@ h1:	;; draw hex digit for low 4 bits of AL
 ;;; Destroys: AX
 ;;;
 draw_text_cell:
+	;; swap 13 & 22 so that CRs get a more appropriate symbol
 	cmp al, 13
-	jz >x1
-	cmp al, 22
-	jnz >x2
-x1:	xor al, 13 xor 22
-x2:	mov ah, invcolor
+	if nz cmp al, 22
+	if z xor al, 13 xor 22
+	mov ah, invcolor
 	cmp bl, maxX
-	je >l2
+	je draw_cell_color
 	;; jmp draw_cell
 
 
-;;; Write a display character in the current color and advance.
-;;; On entry: AL = character, BX = row/col
-;;; On exit: BX = next row/col
-;;; Destroys: AH
+;;; Write a display character in the text color and advance.
+;;;
+;;; On entry: AL = character, BX = row/col  [draw_cell_color: AH = color]
+;;; On exit:  AH = color, BX = next row/col
+;;; Destroys: AL
 ;;;
 draw_cell:
 	mov ah, color
-l2:	push cx
+draw_cell_color:
+	push cx
 	mov cx, 1
 	call draw_cells		; Display CX copies of AX at BX
 	pop cx
@@ -976,49 +977,57 @@ l1:	mov bl, [si]		; Get next digit
 	jmp l1
 
 
-;;; Display message number AL on the status line in highlight color.
-;;; On exit:
-;;;	BX = cursor position at end of message
-;;;	SI unchanged
+;;; Write message number AL on the status line in highlight color.
+;;;
+;;; On entry: AL = message number; BL = column
+;;; On exit:  BX = next cursor position
+;;; Destroys: AX
 ;;;
 draw_status:
 	mov ah, hltcolor
 	;; jmp draw_status_color
 
-;;; Display message number AL on the status line in color AH, then reset color.
+
+;;; Write message on the statuc line and clear to the end of the line.
+;;;
+;;; On entry: AL = message number; AH = color; BL = column
+;;; On exit:  BX = next cursor position
+;;; Destroys: AL
 ;;;
 draw_status_color:
 	mov bl, 0
-	pushi use_defcolor
 	pushi clear_eol
 	;; jmp draw_status_at
 
-;;; Display message number AL at col. BL in the status line after changing
-;;; color to AH.
+
+;;; Write message on the status line.
 ;;;
-;;; On exit: BX = next cursor position
+;;; On entry: AL = message number; AH = color; BL = column
+;;; On exit:  BX = next cursor position
+;;; Destroys: AL
 ;;;
 draw_status_at:
-	mov color, ah
 	mov clrstat, 2		; draw_status_at     at BL
 	mov bh, maxY
 	inc bh
 	;; jmp draw_msg
 
 
-;;; Display message AL at location BX.
-;;; On entry:
-;;;	AL = message # to display
-;;;	BH/BL = row/column on screen
+;;; Write message AL at location BX.
+;;;
+;;; On entry: AL = message number; AH = color; BX = row/col
+;;; On exit:  BX = new row/col
+;;; Destroys: AL
 ;;;
 draw_msg:
-l2:	push si			; Save current position.
-	js >f0			; neg(-128) == -128  (if so, use filename)
+l2:	push si
+	test al
+	js >f0			; 128 => show filename
+	;; find message #AL  (starts at 1)
 	mov si, msg0
-	cbw
-	xchg ax, cx		; CX = string index
-	;; Don't correctly handle the 0 case.
-d1:	lodsb			; TODO: mov al, 0; repne scasb
+	mov cl, al
+	mov ch, 0
+d1:	lodsb
 	test al
 	jnz d1
 	loop d1
@@ -1031,15 +1040,11 @@ f0:	mov si, ARGBUF
 f1:	lodsb
 	test al
 	jz d3
-	call draw_text_cell
+	call draw_cell_color
 	jmp f1
 
 
-;;; Display string at position indicated by BX
-;;;	BH, BL = row, column after end of string
-;;;	CX = # of bytes to end of line after string
-;;;	SI points to byte after string (after terminating 0).
-;;;	AX trashed; other registers preserved.
+;;; Write message (at SI) to display (at BX).
 ;;;
 l0:	neg al
 	call draw_msg
@@ -1050,7 +1055,7 @@ draw_msgstr:
 	js l0			; If high bit set, display substring.
 	test bl
 	if z and al, 95		; capitalize AL
-	call draw_text_cell
+	call draw_cell_color
 	test bl
 	jnz draw_msgstr		; loop while not past end of line
 	mov bl, disp_cols
@@ -1060,12 +1065,12 @@ l1:	lodsb			; be sure to get to end of string
 	jnz l1
 	ret
 
-;;; opt_done: Return from menus.
+
+;;; Clear status if clrstat indicates it is pending.
 ;;;
 maybe_clear_status:
 	shr clrstat, 1
 	jnc ret
-	;; jmp clear_status
 
 
 ;;; Clear the status line.
@@ -1076,23 +1081,24 @@ clear_status:
 	mov bl, 0
 	mov bh, maxY
 	inc bh
-	;; jmp clear_eol
+	;; jmp clear_eol_color
 
 ;;; Clear from BX to end of line.
 ;;; Destroys: AX, CX
 ;;;
+clear_eol_color:
+	mov ah, color
 clear_eol:
 	mov cl, disp_cols
 	sub cl, bl
 	mov ch, 0
-	mov ah, color
 	mov al, 020h		; 020h = space
 	;; jmp draw_cells	; fall through
 
 
 ;;; Write characters to a text-mode display cell.
 ;;; On entry: AL = character, AH = attribute, BH/BL = row/col, CX = reps
-;;; Destroys: AH, CX
+;;; Destroys: CX
 ;;;
 draw_cells:
 	push bx
@@ -1101,22 +1107,24 @@ draw_cells:
 	;; Write directly to video buffer
 	push es, di
 	mov es, screen_seg
-	xchg ax, di
+	xchg ax, di		; save AX
 	add bx, topleft		; adjust for positioning of topleft
 	mov al, scrwid
 	mul bh			; AX = scrwid*line
 	mov bh, 0
 	add ax, bx		; AX = scrwid*line + column
 	add ax, ax
-	xchg ax, di		; DI = address, AX = original value
+	xchg ax, di		; DI = address; restore AX
 	rep stosw		; store CX char/attribute pairs at ES:[DI++]
 	pop di, es
 	jmp >l2
 	;;   Use BIOS to display character
 l1:	call set_cursor		; put cursor at BX
 	mov bx, 0009		; bh = page 0;  bl = 9
+	push ax
 	xchg bl, ah		; bl = color;  ah = function 9
 	int 010h		; Display CX spaces
+	pop ax
 l2:	pop bx
 	ret
 
@@ -1172,7 +1180,7 @@ s3:	;; Jump to vector for option BH
 	cbw
 	xchg ax, bx		; for "mov ax, bx"
 	push [bx+si]
-	jmps maybe_clear_status	; clear status before next getkey
+	jmps clear_status	; clear status before calling vector
 
 s4:	;; Move selection to previous option
 	dec bh			; left arrow: Go to previous option
