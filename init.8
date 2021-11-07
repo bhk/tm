@@ -342,6 +342,22 @@ fn_bindings:
 	bind do_mx, 0			; default: define or look for macro
 
 
+;;; Command-line arguments
+
+argbindings:
+	bind xoff, 'x'
+	bind yoff, 'y'
+	bind tabwid, 't'
+	bind disp_cols, 'w'
+	bind disp_lines, 'l'
+	bind newline, 'n'
+	bind defcolor, 'c'
+	bind invcolor, 'i'
+	bind hltcolor, 'h'
+	bind screen_page, 'b'	; set 'screen_page' to pre-defined value
+	db 0
+
+
 ;;; `dimension` structure:
 ;;;
 ;;; This block of variables consists of pairs of (x, y) values corresponding

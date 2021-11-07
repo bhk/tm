@@ -286,7 +286,7 @@ do_literal:
 	call draw_char		; display AL, incrementing cursor
 	if c jmp top_dn		; cursor off screen, move TOP down
 	mov cursor, bx
-	;; jmp update_diff
+	;; jmp draw_from_point
 
 
 ;;; Update screen contents from `point` to end of screen, or until
@@ -297,7 +297,7 @@ do_literal:
 ;;;	BX = where text is TO BE displayed (cursor position)
 ;;;     DX = where text is currently displayed (cursor position)
 ;;;
-update_diff:
+draw_from_point:
 	mov targetX, bl		; set target column for up- & down-line
 	mov di, point
 	 ; Display bytes until cursor pos. matches what it would have been
@@ -364,7 +364,7 @@ do_delete:
 d1:	;; now: DI...SI describes region to delete
 	mov dx, bx		; DX = BX = cursor position at DI
 	push ax, di
-	;; Find screen location of the end of the region (for update_diff)
+	;; Find screen location of the end of the region (for draw_from_point)
 	xchg di, si		; SI = start; DI = end
 	call advance_to_di	; BX = cursor pos where region ends; SI = region end
 	;; Modify buffer
@@ -375,7 +375,7 @@ d1:	;; now: DI...SI describes region to delete
 	cmp ax, wnd_ptr		; If backspace may have moved DI off screen,
 	jb ret			;   screen will have to be re-drawn.
 	xchg dx, bx		; BX = where to display ; DX = where text WAS displayed
-	jmp update_diff		; update display from point to end of screen
+	jmp draw_from_point	; update display from point to end of screen
 
 
 ;;; Scroll text down one line on screen.
@@ -576,21 +576,7 @@ p9:	call draw_eol		; clear to EOL & advance to start of next line
 	ret
 
 
-;;; On entry: BX = row, col
-;;; On exit:  DI = address
-;;;
-calc_address:
-	xchg ax, di
-	add bx, topleft		; adjust for positioning of topleft
-	mov al, bh
-	mul scrwid		; AX = scrwid*line
-	mov bh, 0
-	add ax, bx		; AX = scrwid*line + column
-	add ax, ax
-	xchg ax, di		; DI = address, AX = original value
-	ret
-
-;;; Display tab character at BX  [display spaces until at tab stop]
+;;; Draw TAB at BX (display spaces up to next tab stop)
 ;;; On exit:
 ;;;	C set => past end of screen
 draw_tab:
@@ -1083,7 +1069,6 @@ l1:	lodsb			; be sure to get to end of string
 
 ;;; opt_done: Return from menus.
 ;;;
-opt_done:
 maybe_clear_status:
 	shr clrstat, 1
 	jnc ret
@@ -1093,6 +1078,7 @@ maybe_clear_status:
 ;;; Clear the status line.
 ;;; Destroys: AX, BX, CX, ES
 ;;;
+opt_done:
 clear_status:
 	mov bl, 0
 	mov bh, maxY
@@ -1110,9 +1096,10 @@ clear_eol:
 	mov al, 020h		; 020h = space
 	;; jmp draw_cells	; fall through
 
+
 ;;; Write characters to a text-mode display cell.
 ;;; On entry: AL = character, AH = attribute, BH/BL = row/col, CX = reps
-;;; Destroys: AH, ES
+;;; Destroys: AH, CX, ES
 ;;;
 draw_cells:
 	push bx
@@ -1121,7 +1108,17 @@ draw_cells:
 	;; Write directly to video buffer
 	mov es, screen_seg
 	push di
-	call calc_address	; DI = address
+
+	;; Calculate address on screen
+	xchg ax, di
+	add bx, topleft		; adjust for positioning of topleft
+	mov al, bh
+	mul scrwid		; AX = scrwid*line
+	mov bh, 0
+	add ax, bx		; AX = scrwid*line + column
+	add ax, ax
+	xchg ax, di		; DI = address, AX = original value
+
 	rep stosw		; store CX char/attribute pairs at ES:[DI++]
 	pop di
 	mov es, ds
@@ -1133,33 +1130,6 @@ l1:	call set_cursor		; put cursor at BX
 	int 010h		; Display CX spaces
 l2:	pop bx
 	ret
-
-
-;;; Save changes before exiting
-;;;
-opt_quit_save:
-	call opt_save		; this might prompt "Enter filename:"
-	call get_filename	; see if user entered a filename
-	jnz opt_quit_y		; valid filename => has been saved
-	;; jmp opt_quit		; back to menu
-
-
-;;; Quit (^X^Q)
-;;;
-opt_quit:
-	mov si, exit_menu	; "Abort and lose changes?"
-	test unsaved
-	jnz menu_show
-	;; jmp opt_quit_y
-
-;;; Quit/Yes (discard unsaved changes)
-;;;
-opt_quit_y:
-	call clear_status
-	dec bh
-	call set_cursor
-	mov ax, 04c00
-	int 021h
 
 
 do_esc:
@@ -1257,6 +1227,33 @@ use_defcolor:
 	ret
 
 
+;;; Save changes before exiting
+;;;
+opt_quit_save:
+	call opt_save		; this might prompt "Enter filename:"
+	call get_filename	; see if user entered a filename
+	jnz opt_quit_y		; valid filename => has been saved
+	;; jmp opt_quit		; back to menu
+
+
+;;; Quit (^X^Q)
+;;;
+opt_quit:
+	mov si, exit_menu	; "Abort and lose changes?"
+	test unsaved
+	jnz menu_show
+	;; jmp opt_quit_y
+
+;;; Quit/Yes (discard unsaved changes)
+;;;
+opt_quit_y:
+	call clear_status
+	dec bh
+	call set_cursor
+	mov ax, 04c00
+	int 021h
+
+
 ;;; Set srcwid, scrhgt, and screen_seg (if BIOS mode is known)
 ;;;
 check_display:
@@ -1339,20 +1336,6 @@ get_assoc_b:
 	cmp b[di-1], 1
 	jnc l0
 	ret				; If [di-1] == 0, return with Carry
-
-
-argbindings:
-	bind xoff, 'x'
-	bind yoff, 'y'
-	bind tabwid, 't'
-	bind disp_cols, 'w'
-	bind disp_lines, 'l'
-	bind newline, 'n'
-	bind defcolor, 'c'
-	bind invcolor, 'i'
-	bind hltcolor, 'h'
-	bind screen_page, 'b'	; set 'screen_page' to pre-defined value
-	db 0
 
 
 ;;; Find start of line containing DI, putting result in SI.
