@@ -21,8 +21,7 @@ TM source files:
 Other sources of note:
 
 * ztrim.8 : A program that trims the zero-initialized variables from the
-  start of a COM program.  It is not a general purpose utility; TM has to
-  know about it to survive this processing step.
+  start of a COM program.
 
 * other/scan.8 : A test program that accepts keyboards input and displays
   the keycode representation that TM uses internally in its function binding
