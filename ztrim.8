@@ -143,7 +143,8 @@ l1:	lodsb
 	mov w[di+16], ax ; footer_jmp
 	mov di, footer
 	mov ax, entry_point
-	sub ax, bx
+	sub ax, bx ; BX = last byte = end - 1
+	dec ax
 	mov w[di+4], ax ; entry_jmp = offset from end to entry_point
 
 	;; Make trimmed file: header + nonzeros + footer
