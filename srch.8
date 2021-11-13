@@ -10,6 +10,15 @@ isupper MACRO
 	cmp #1, 'Z'-'A'+1
 #em
 
+mov_al_1 MACRO
+	db 0b8h		; opcode for mov ax, ...
+#em
+
+mov_al_2 MACRO
+	mov al, 0b0h xor #1 xor #2
+	xor al, 0b0h xor #1
+#em
+
 srch_cursor	equ	219	; Solid block
 srch_fwd	equ	1	; add 1 to di
 srch_back	equ	255	; subtract 1 from di
@@ -22,34 +31,33 @@ NONCSMASK	equ	(not 32)	; AND al, 0DF	converts LC to UC
 ;;; a replacement macro) terminate recording.
 ;;;
 ;;; srchmode identifies how the searchkey should be interpreted:
+;;;	0 => initial state
 ;;;	3 => already in search/replace     (recorded macro)
 ;;;	7 => srch/replace ALL occurrences
 ;;;
-do_rsearch:		; set AL = FF and continue to do_search
-	db 0B8h						; "MOV AX, ..."
-do_fsearch:		; set AL = 01 and continue to do_search
-	mov al, srch_fwd xor 0b0h xor srch_back		; "db 0b0h, 04eh"
-	xor al, (srch_back xor 0b0h)
-	mov ah, NONCSMASK
+do_rsearch:	mov_al_1			; AL = srch_back
+do_fsearch:	mov_al_2 srch_back, srch_fwd	; AL = srch_fwd
+	mov ah, NONCSMASK	; start out non-case-sensitive
 	test srchmode, ah	; if >0, we must be recording a macro
 	if nz jmp do_makemx	; start/stop macro
 	mov srchdir_n_mask, ax	; srchdir=AL ; srchcsmask = NONCSMASK
 	mov si, srchbuf
 	call srch_setsrchend	; srchend=srchbuf; DX=point; CX=srchbuf
 	;; Main search loop:
-	;;	always: DX = start of string in text
-	;;	always: CX = srchend
 	;;	if (text at DX matches srchbuf): srch_found
 	;;	advance DX
 	;;	if out of range: srch_error
 	;;
 srch_loop:
+	;; Now: DX = start of matched string in text
+	;;	CX = srchend
+	;;	b[srchbuf...srchend-1] = search string
 	mov di, dx		; DI = srchpos
 	mov si, srchbuf		; SI = srchbuf
-	;; Inner loop:
-	;;   SI = position being matched in srchbuf
-	;;   DI = position being matched in text
-l1:	cmp si, cx		; cmp si, srchend.  If at end of string,
+l1:	;; Now: SI = position being matched in srchbuf
+	;;	DI = position being matched in text
+	;;	CX = srchend
+	cmp si, cx		; cmp si, srchend.  If at end of string,
 	je srch_found		;    get user input.
 	lodsb			; AL = [SI++]
 	scasb			; cmp al, b[di++]
@@ -112,12 +120,12 @@ srch_found:
 srch_input:
 	or al, srchmode		; If srchmode==3, AL = msgrplc
 	cbw
-	mov bp, ax		; BP = msgsrch, msgrsrch, msgnotfound, msgrplc
+	push si, di, ax
 	call set_point
-	push si, di		; save these before draw_page destroys them
 	call chk_point		; calculate & set cursor position
+	pop ax
+	mov bp, ax
 	push wnd_ptr		; stack contains:  SI, DI, wnd_ptr
-	mov ax, bp
 srch_dispmsg:
 	call draw_status	; display "Search: "
 	call srch_dispstr	; show string AND set:  SI=srchend, CX=srchbuf
@@ -190,14 +198,12 @@ srch_more:
 rplc_quit:
 	jmp srch_quit
 
-;;; Ctrl-S/R : search for next occurrence, recall old string, or wrap around
-;;;	The following tricky code depends on the keys that select this option.
-;;;	For a more flexible solution, use the "mov ax, {mov al, x}; xor y" code.
-srch_rsrch:
-	dec ax			; for "dec al"; convert the 18 in AL to 17
-srch_fsrch:
-	sub al, 18		; convert the 19 in AL to 1 (or 17 to -1)
-l1:	mov srchdir, al		; in case direction has changed
+
+;;; Ctrl-S/R : search for next occurrence, recall old string, or wrap around.
+;;;
+srch_rsrch:	mov_al_1	; AL = -1
+srch_fsrch:	mov_al_2 -1, 1	; AL = 1
+	mov srchdir, al		; in case direction has changed
 	cmp si, cx		; cmp si, srchbuf
 	jnz srch_next
 	mov bx, srcholdlen
@@ -233,7 +239,7 @@ rplc_play:
 	cmp al, srchmode
 	jbe >l1                 ; we're already replacing
 	mov srchmode, al        ; srchmode=3 indicating we're replacing now
-	call draw_status
+	call draw_status	; AL=3 => "Type ^S when done..."
 
 	;; cmp bp, msgrplc	; BP is either "...Search: " or "Replace"
 	;; je >l1
@@ -299,10 +305,11 @@ l2:	cmp si, srchend
 	call draw_text_cell	; Display "search cursor"
 	jmp set_text_cursor	; Put the BIOS cursor in the text area
 
+
 ;;; Set srchend, srchtextmax, and DX
-;;;    On entry:	SI = new srchend value
+;;; On entry:	SI = new srchend value
 ;;;		point = something valid
-;;;     On exit:	SI unchanged
+;;; On exit:	SI unchanged
 ;;;		DX = point - len(srchbuf)
 ;;;		AX = len(srchbuf)
 ;;;		CX = srchend

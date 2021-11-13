@@ -978,7 +978,7 @@ l1:	mov bl, [si]		; Get next digit
 
 ;;; Write message number AL on the status line in highlight color.
 ;;;
-;;; On entry: AL = message number; BL = column
+;;; On entry: AL = message number
 ;;; On exit:  BX = next cursor position
 ;;; Destroys: AX
 ;;;
@@ -989,7 +989,7 @@ draw_status:
 
 ;;; Write message on the statuc line and clear to the end of the line.
 ;;;
-;;; On entry: AL = message number; AH = color; BL = column
+;;; On entry: AL = message number; AH = color
 ;;; On exit:  BX = next cursor position
 ;;; Destroys: AL
 ;;;
