@@ -180,6 +180,64 @@ bind_b MACRO #rx2l
   #er
 #em
 
+;;;
+;;; Key codes
+;;;
+
+keyBKSP		equ 8
+keyDEL		equ -83
+keyDOWN		equ -80
+keyEND		equ -79
+keyENTER	equ 13
+keyESC		equ 27
+keyHOME		equ -71
+keyLEFT		equ -75
+keyPGDN		equ -81
+keyPGUP		equ -73
+keyRIGHT	equ -77
+keySPC		equ 32
+keyTAB		equ 9
+keyUP		equ -72
+altA		equ -30
+altB		equ -48
+altF		equ -33
+altG		equ -34
+altM		equ -50
+altV		equ -47
+altZ		equ -44
+ctrlA		equ 1
+ctrlB		equ 2
+ctrlC		equ 3
+ctrlD		equ 4
+ctrlE		equ 5
+ctrlF		equ 6
+ctrlG		equ 7
+ctrlJ		equ 10
+ctrlK		equ 11
+ctrlL		equ 12
+ctrlN		equ 14
+ctrlO		equ 15
+ctrlP		equ 16
+ctrlQ		equ 17
+ctrlR		equ 18
+ctrlS		equ 19
+ctrlT		equ 20
+ctrlV		equ 22
+ctrlW		equ 23
+ctrlW		equ 23
+ctrlX		equ 24
+ctrlY		equ 25
+ctrlZ		equ 26
+ctrlAT		equ -3	; -131 -> -3
+ctrlUNDER	equ 31
+ctrlBKSP	equ 127
+ctrlBKSL	equ 28
+ctrlEND		equ -117
+ctrlLEFT	equ -115
+ctrlPGDN	equ -118
+ctrlPGUP	equ -4	; -132 -> -4
+ctrlRIGHT	equ -116
+
 ;;; Message indices
 ;;;
 ;;; Note: srch_input relis on these properties:
@@ -272,10 +330,10 @@ msg0:	db 0
 	db 'TM 1.5', 0				; 52 TM 1.5
 
 menudef esc_menu, 51, 4, opt_save, 39, opt_save_as, 46, opt_load, 35, opt_quit, 24
-	bind_b 1, 'S', 19		; 'S' and ctrl-S execute "Save"
-	bind_b 2, 'A', 23		; 'A' and ctrl-W execute "save As"
-	bind_b 3, 'L', 6		; 'L' and ctrl-F execute "Load"
-	bind_b 4, 'Q', 3		; 'Q' and ctrl-C execute option 2
+	bind_b 1, 'S', ctrlS
+	bind_b 2, 'A', ctrlW
+	bind_b 3, 'L', ctrlF
+	bind_b 4, 'Q', ctrlC
 	db 0
 
 menudef exit_menu, 45, 3, opt_done, 47, opt_quit_y, 48, opt_quit_save, 39
@@ -302,43 +360,43 @@ menudef load_menu, 49, 2, opt_load_save, 50, opt_replace, 38
 ;;; A zero key value terminates the list of bindings.
 
 fn_bindings:
-	bind do_literal, 10		; LF
-	bind do_enter, 13		; Enter
-	bind do_literal, 9		; tab
-	bind do_backspace, 8		; BackSpace
-	bind go_up, 16, -72		; ctrl-P, Up
-	bind go_dn, 14, -80		; ctrl-N, Down
-	bind go_lft, 2, -75		; ctrl-B, Left
-	bind go_rgt, 6, -77		; ctrl-F, Right
-	bind go_pgup, -73, -47		; PgUp, alt-V
-	bind go_pgdn, -81, 22		; PgDn, ctrl-V
-	bind go_top, -4			; ctrl-PgUp (-132 -> -4)
-	bind go_btm, -118		; ctrl-PgDn
-	bind go_home, 1, -71		; ctrl-A, Home
-	bind go_end, 5, -79		; ctrl-E, End
-	bind go_lft_word, -115, -48	; ctrl-Left, Alt-B
-	bind go_rgt_word, -116, -33	; ctrl-Right, Alt-F
-	bind go_scrlup, 26		; ctrl-Z
-	bind go_scrldn, -44		; alt-Z
-	bind do_recenter, 12		; ctrl-L
-	bind do_delete, 4, -83		; ctrl-D, Delete
-	bind do_kill, 11, -117		; ctrl-K, ctrl-End
-	bind do_ctrlq, 17		; ctrl-Q
-	bind do_esc, 24, 27		; ctrl-X, ESC
-	bind do_yank, 25		; ctrl-Y
-	bind do_cutappend, -30		; Alt-A
-	bind do_setmark, -3		; Ctrl-@, Alt-= (-131 -> -3)
-	bind do_deltomark, 23		; Ctrl-W
-	bind do_fsearch, 19		; Ctrl-S
-	bind do_rsearch, 18		; Ctrl-R
-	bind do_xchgmark, 28		; Ctrl-\
-	bind do_abort, 7		; Ctrl-G
-	bind do_stripCRs, -50		; Alt-M
-	bind do_twiddle, 20		; Ctrl-T
-	bind do_dispmode, -34		; Alt-G
-	bind do_insline, 15		; Ctrl-O
-	bind do_undo, 31		; Ctrl-"_"
-	bind do_mx, 0			; default: define or look for macro
+	bind do_literal, ctrlJ
+	bind do_enter, keyENTER
+	bind do_literal, keyTAB
+	bind do_backspace, keyBKSP
+	bind go_up, ctrlP, keyUP
+	bind go_dn, ctrlN, keyDOWN
+	bind go_lft, ctrlB, keyLEFT
+	bind go_rgt, ctrlF, keyRIGHT
+	bind go_pgup, keyPGUP, altV
+	bind go_pgdn, keyPGDN, ctrlV
+	bind go_top, ctrlPGUP
+	bind go_btm, ctrlPGDN
+	bind go_home, ctrlA, keyHOME
+	bind go_end, ctrlE, keyEND
+	bind go_lft_word, ctrlLEFT, altB
+	bind go_rgt_word, ctrlRIGHT, altF
+	bind go_scrlup, ctrlZ
+	bind go_scrldn, altZ
+	bind do_recenter, ctrlL
+	bind do_delete, ctrlD, keyDEL
+	bind do_kill, ctrlK, ctrlEND
+	bind do_ctrlq, ctrlQ
+	bind do_esc, ctrlX, keyESC
+	bind do_yank, ctrlY
+	bind do_cutappend, altA
+	bind do_setmark, ctrlAT
+	bind do_deltomark, ctrlW
+	bind do_fsearch, ctrlS
+	bind do_rsearch, ctrlR
+	bind do_xchgmark, ctrlBKSL
+	bind do_abort, ctrlG
+	bind do_stripCRs, altM
+	bind do_twiddle, ctrlT
+	bind do_dispmode, altG
+	bind do_insline, ctrlO
+	bind do_undo, ctrlUNDER
+	bind do_mx, 0
 
 
 ;;; Command-line arguments

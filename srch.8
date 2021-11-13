@@ -133,14 +133,14 @@ srch_dispmsg:
 	if ae jmp rplc_query
 srch_getchar:
 	call dispatch_key
-	dvect 8, srch_bs	; Backspace
-	dvect 127, srch_rplc	; C-Backspace
-	dvect 17, srch_quote	; Ctrl-Q
-	dvect 9, srch_literal	; Tab
-	dvect 7, srch_quit
-	dvect 27, srch_quit
-	dvect 18, srch_rsrch	; Ctrl-R
-	dvect 19, srch_fsrch	; Ctrl-S
+	dvect keyBKSP, srch_bs
+	dvect ctrlBKSP, srch_rplc
+	dvect ctrlQ, srch_quote
+	dvect keyTAB, srch_literal
+	dvect ctrlG, srch_quit
+	dvect keyESC, srch_quit
+	dvect ctrlR, srch_rsrch
+	dvect ctrlS, srch_fsrch
 	db 0
 	jge srch_literal	; if (al >= 32) goto srch_literal
 	ungetkey al		; Unknown Ctrl-char or extended code

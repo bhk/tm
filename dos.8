@@ -212,10 +212,10 @@ l1:	lodsb
 	dec si			; SI now points to first terminating zero
 	call set_cursor
 l2:	call dispatch_key
-	dvect 27, en_esc
-	dvect 13, en_ret
-	dvect 8, en_bak
-	dvect 7, en_esc
+	dvect keyESC, en_esc
+	dvect keyENTER, en_ret
+	dvect keyBKSP, en_bak
+	dvect ctrlG, en_esc
 	db 0
 	jb l2
 	mov [si], al		; Add literal character to file name

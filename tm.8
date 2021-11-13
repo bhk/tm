@@ -909,8 +909,8 @@ scan_args:
 s0:	;; get next character
 	lodsb			; AL = *SI++
 s1:	call dispatch_al
-	dvect 13, ret		; CR = done with command line
-	dvect 32, s0
+	dvect keyENTER, ret
+	dvect keySPC, s0
 	dvect '-', >s3		; evaluate switch...
 	db 0
 	dec si
@@ -1156,11 +1156,11 @@ s2:	cmp bh, [si]
 	;;   SI = menu data (b[si] = # of options, w[si+1] = addr. of bindings)
 m1:	call menu_show_options	; highlight current option
 	call dispatch_key
-	dvect -04d, s1		; right arrow
-	dvect 27, opt_done	; ESC = return
-	dvect 7, opt_done	; ^G = return
-	dvect 13, >s3		; ENTER = select
-	dvect -04b, >s4		; left arrow
+	dvect keyRIGHT, s1
+	dvect keyESC, opt_done
+	dvect ctrlG, opt_done
+	dvect keyENTER, >s3
+	dvect keyLEFT, >s4
 	db 0
 	jz s1			; spacebar => next option
 
