@@ -133,14 +133,13 @@ srch_dispmsg:
 	if ae jmp rplc_query
 srch_getchar:
 	call dispatch_key
-	dvect keyBKSP, srch_bs
-	dvect ctrlBKSP, srch_rplc
-	dvect ctrlQ, srch_quote
-	dvect keyTAB, srch_literal
-	dvect ctrlG, srch_quit
-	dvect keyESC, srch_quit
-	dvect ctrlR, srch_rsrch
-	dvect ctrlS, srch_fsrch
+	bind_rel srch_bs, keyBKSP
+	bind_rel srch_rplc, ctrlBKSP
+	bind_rel srch_quote, ctrlQ
+	bind_rel srch_literal, keyTAB
+	bind_rel srch_quit, keyESC, ctrlG
+	bind_rel srch_rsrch, ctrlR
+	bind_rel srch_fsrch, ctrlS
 	db 0
 	jge srch_literal	; if (al >= 32) goto srch_literal
 	ungetkey al		; Unknown Ctrl-char or extended code
@@ -269,10 +268,10 @@ rplc_query:
 	jb rplc_quit
 	or al, 32
 	call dispatch_al
-	dvect 'q', rplc_quit	; Warning: This was once out-of-range!
-	dvect 'n', srch_next	; Out of range dvect's aren't flagged
-	dvect 'y', rplc_play	; at assembly-time!  Double-check them!
-	dvect 'a', rplc_all
+	bind_rel rplc_quit, 'q'	; Warning: This was once out-of-range!
+	bind_rel srch_next, 'n'
+	bind_rel rplc_play, 'y'
+	bind_rel rplc_all, 'a'
 	db 0
 	je rplc_play		; spacebar => replace
 	jmp rplc_query

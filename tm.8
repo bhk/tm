@@ -63,8 +63,11 @@ get_and_do:
 	db 0
 	jge handle_literal	; AL is a printable character
 lookup_do:
+	mov di, key_aliases
+	call assoc_b
+	if nc mov al, [di]
 	mov di, fn_bindings	; look for key in bindings[]
-	call get_assoc
+	call assoc_w
 	push [di]
 handler_state:
 	;; Command handlers (do/go_...), when called from the main loop
@@ -909,9 +912,9 @@ scan_args:
 s0:	;; get next character
 	lodsb			; AL = *SI++
 s1:	call dispatch_al
-	dvect keyENTER, ret
-	dvect keySPC, s0
-	dvect '-', >s3		; evaluate switch...
+	bind_rel ret, keyENTER
+	bind_rel s0, keySPC
+	bind_rel >s3, '-'	; evaluate switch...
 	db 0
 	dec si
 	mov di, ARGBUF		; Take arg as file name, put SI at end of arg
@@ -931,14 +934,13 @@ s3:	lodsb			; get switch letter
 	jne >l2
 	mov verbatim, al	; On '-n...', set verbatim non-zero
 l2:	mov di, argbindings	; first look for standard binding
-	call get_assoc		; find variable associated with arg
+	call assoc_rel		; find variable associated with arg
 	jc sa_err		; not in arg/variable binding list
-	mov di, [di]
 	mov [di], cl		; put bl in variable
 	jmp s0			; This & fallthrough performs next two lines
 
 
-sa_err:	mov dx, dosmsg3		; report command line error
+sa_err:	mov dx, dosmsgBadArg	; report command line error
 	;; jmp err_exit
 
 
@@ -1156,18 +1158,17 @@ s2:	cmp bh, [si]
 	;;   SI = menu data (b[si] = # of options, w[si+1] = addr. of bindings)
 m1:	call menu_show_options	; highlight current option
 	call dispatch_key
-	dvect keyRIGHT, s1
-	dvect keyESC, opt_done
-	dvect ctrlG, opt_done
-	dvect keyENTER, >s3
-	dvect keyLEFT, >s4
+	bind_rel opt_done, keyESC, ctrlG
+	bind_rel s1, keyRIGHT
+	bind_rel >s3, keyENTER
+	bind_rel >s4, keyLEFT
 	db 0
 	jz s1			; spacebar => next option
 
 	;; Check keymap (keys => option number)
 	and al, 95		; Make lower-case upper
 	mov di, [si+1]
-	call get_assoc_b	; C => no match
+	call assoc_b		; C => no match
 	jc m1
 	mov bh, [di]		; BH = [si++]
 
@@ -1293,34 +1294,60 @@ beep:	push ax, dx
 	ret
 
 
-;;; Search a (key, value) association table.  Each key is a byte;
-;;; each value is a word. A zero key terminates the table.
+;;; Search a bind_w table.  A zero key terminates the table.
 ;;;
-;;; On entry:
-;;;	AL = key to search for
-;;;	DI = pointer to sequence of (byte, word) pairs
-;;; On exit:
-;;;       NoCarry => found;   DI = ptr to value in matching pair
-;;;       Carry => not found; DI = ptr to byte after terminating zero
-;;;	All other regs, unchanged.
+;;; On entry:	AL = key to search for
+;;;		DI = address of table
+;;; On exit:	NoCarry => found;     DI = address of value in matching pair
+;;;		Carry   => not found; DI = address following terminating zero
+;;;		Other registers unchanged.
 ;;;
 l0:	scasw				; for "inc DI, 2"
-get_assoc:
+assoc_w:
 	scasb				; cmp al, [di++]
 	jz ret				; If AL is found, return NoCarry
 	cmp b[di-1], 1
 	jnc l0
 	ret				; If [di-1] == 0, return with Carry
 
-;;; Like get_assoc, but values are bytes, nor words.
+
+;;; Search a bind_b table.  A zero key terminates the table.
+;;;
+;;; On entry:	AL = key to search for
+;;;		DI = address of table
+;;; On exit:	NoCarry => found;     DI = address of value in matching pair
+;;;		Carry   => not found; DI = address following terminating zero
+;;;		Other registers unchanged.
 ;;;
 l0:	inc di				; for "inc DI, 2"
-get_assoc_b:
+assoc_b:
 	scasb				; cmp al, [di++]
 	jz ret				; If AL is found, return NoCarry
 	cmp b[di-1], 1
 	jnc l0
 	ret				; If [di-1] == 0, return with Carry
+
+
+;;; Search a bind_rel table.  A zero key terminates the table.
+;;; Each value is a relative offset to an address that will be automatically
+;;; resolved on success.
+;;;
+;;; On entry:	AL = key to search for
+;;;		DI = address of table
+;;; On exit:	NoCarry => found;     DI = address referenced by value
+;;;		Carry   => not found; DI = address following terminating zero
+;;;		Other registers unchanged.
+;;;
+assoc_rel:
+	call assoc_b
+	jc ret
+	push ax
+	mov al, [di]
+	cbw
+	add di, ax
+	pop ax
+	clc
+	ret
 
 
 ;;; Find start of line containing DI, putting result in SI.

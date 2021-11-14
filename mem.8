@@ -270,7 +270,7 @@ l1:	mov ax, textbufmax
 	add bx, bp		; BX = cb_setg
 	jmp i1
 
-l9:	mov dx, dosmsg4		; say "You're screwed."
+l9:	mov dx, dosmsgNoMem	; "Not enough memory"
 	jmp err_exit
 
 

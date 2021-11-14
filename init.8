@@ -141,8 +141,6 @@ menudef MACRO ; label prompt count [vector name]+
 #1_L: db
 #EM
 
-dvect MACRO db #1, (#2 - $) #EM
-
 jmps MACRO jmp short #1 #EM
 
 clear MACRO sub #1, #1 #EM
@@ -163,22 +161,47 @@ jmpon MACRO
 	jz #2
 #EM
 
-;;; Bind one-byte keys to two-byte values (usually addresses)
-
-bind MACRO #rx2l
-	db  #x		; byte representing key
-	dw  offset #1	; word holding associated value
+;;; bind_w VALUE, KEY... : Associate byte keys with word values
+;;;
+bind_w MACRO #rx2l
+	db  #x		; key
+	dw  offset #1	; value
   #er
 #em
 
-
-;;; Bind one-byte keys to one-byte values
-
+;;; bind_b VALUE, KEY...  : Associate byte keys and values
+;;;
 bind_b MACRO #rx2l
-	db  #x		; byte representing key
-	db  #1		; word holding associated value
+	db  #x, #1	; key, value
   #er
 #em
+
+;;; bind_rel LABEL, KEY...
+;;;
+;;; Associate an address with one or more KEY values.  NOTE: The address is
+;;; stored as an 8-bit relative offset.
+;;;
+bind_rel MACRO #rx2l
+	db #x, #1 - $	; key, value
+  #er
+#em
+
+;;;
+;;; Command-line arguments
+;;;
+
+argbindings:
+	bind_rel xoff, 'x'
+	bind_rel yoff, 'y'
+	bind_rel tabwid, 't'
+	bind_rel disp_cols, 'w'
+	bind_rel disp_lines, 'l'
+	bind_rel newline, 'n'
+	bind_rel txtcolor, 'c'
+	bind_rel invcolor, 'i'
+	bind_rel hltcolor, 'h'
+	bind_rel screen_page, 'b'	; set 'screen_page' to pre-defined value
+	db 0
 
 ;;;
 ;;; Key codes
@@ -272,8 +295,8 @@ msgnomore	equ 42
 msgundo		equ 43
 msgbanner	equ 52
 
-dosmsg3:	db 'TM: bad argument$'
-dosmsg4:	db 'TM: Not enough memory$'
+dosmsgBadArg:	db 'TM: bad argument$'
+dosmsgNoMem:	db 'TM: Not enough memory$'
 
 msg0:	db 0
 	db -39, 'd', -40, 0			;  1 Saved "<fnm>"
@@ -303,11 +326,11 @@ msg0:	db 0
 	db 'record', 0				; 25 record
 	db -35, -31, 0				; 26 Load file:
 	db -39, -31, 0				; 27 Save file:
-	db -35, ' ', -32, '!', 0		; 28 Load error!
+	db -35, ' ', -32, '!', 0		; 28 Load Error!
 	db -33, ' too big!', 0			; 29 File too big!
-	db -32, ' ', -34,-41,-33,'!', 0  	; 30 error saving file!
+	db -32, ' ', -34,-41,-33,'!', 0  	; 30 Error saving file!
 	db ' ', -33, ':', 0			; 31  file:
-	db 'error', 0				; 32 error
+	db 'Error', 0				; 32 Error
 	db 'file', 0				; 33 file
 	db 'sav', 0				; 34 sav
 	db 'Load', 0				; 35 Load
@@ -324,7 +347,7 @@ msg0:	db 0
 	db -34, 'e As', 0               	; 46 save As
 	db 'No', 0				; 47 No
 	db 'Yes', 0				; 48 Yes
-	db -35, ':', -40, ' un', -34, -18, 0	; 49 Load: "FILE" unsaved
+	db -35, ':', -40, ' un', -34, -18, 0	; 49 Load: "FILE" unsaved.
 	db -39, -37, 0				; 50 Save changes
 	db 'Option:', 0                         ; 51 Option
 	db 'TM 1.5', 0				; 52 TM 1.5
@@ -360,58 +383,57 @@ menudef load_menu, 49, 2, opt_load_save, 50, opt_replace, 38
 ;;; A zero key value terminates the list of bindings.
 
 fn_bindings:
-	bind do_literal, ctrlJ
-	bind do_enter, keyENTER
-	bind do_literal, keyTAB
-	bind do_backspace, keyBKSP
-	bind go_up, ctrlP, keyUP
-	bind go_dn, ctrlN, keyDOWN
-	bind go_lft, ctrlB, keyLEFT
-	bind go_rgt, ctrlF, keyRIGHT
-	bind go_pgup, keyPGUP, altV
-	bind go_pgdn, keyPGDN, ctrlV
-	bind go_top, ctrlPGUP
-	bind go_btm, ctrlPGDN
-	bind go_home, ctrlA, keyHOME
-	bind go_end, ctrlE, keyEND
-	bind go_lft_word, ctrlLEFT, altB
-	bind go_rgt_word, ctrlRIGHT, altF
-	bind go_scrlup, ctrlZ
-	bind go_scrldn, altZ
-	bind do_recenter, ctrlL
-	bind do_delete, ctrlD, keyDEL
-	bind do_kill, ctrlK, ctrlEND
-	bind do_ctrlq, ctrlQ
-	bind do_esc, ctrlX, keyESC
-	bind do_yank, ctrlY
-	bind do_cutappend, altA
-	bind do_setmark, ctrlAT
-	bind do_deltomark, ctrlW
-	bind do_fsearch, ctrlS
-	bind do_rsearch, ctrlR
-	bind do_xchgmark, ctrlBKSL
-	bind do_abort, ctrlG
-	bind do_stripCRs, altM
-	bind do_twiddle, ctrlT
-	bind do_dispmode, altG
-	bind do_insline, ctrlO
-	bind do_undo, ctrlUNDER
-	bind do_mx, 0
+	bind_w do_literal, ctrlJ, keyTAB
+	bind_w do_enter, keyENTER
+	bind_w do_backspace, keyBKSP
+	bind_w go_up, keyUP
+	bind_w go_dn, keyDOWN
+	bind_w go_lft, keyLEFT
+	bind_w go_rgt, keyRIGHT
+	bind_w go_pgup, keyPGUP
+	bind_w go_pgdn, keyPGDN
+	bind_w go_top, ctrlPGUP
+	bind_w go_btm, ctrlPGDN
+	bind_w go_home, keyHOME
+	bind_w go_end, keyEND
+	bind_w go_lft_word, ctrlLEFT
+	bind_w go_rgt_word, ctrlRIGHT
+	bind_w go_scrlup, ctrlZ
+	bind_w go_scrldn, altZ
+	bind_w do_recenter, ctrlL
+	bind_w do_delete, keyDEL
+	bind_w do_kill, ctrlEND
+	bind_w do_ctrlq, ctrlQ
+	bind_w do_esc, keyESC
+	bind_w do_yank, ctrlY
+	bind_w do_cutappend, altA
+	bind_w do_setmark, ctrlAT
+	bind_w do_deltomark, ctrlW
+	bind_w do_fsearch, ctrlS
+	bind_w do_rsearch, ctrlR
+	bind_w do_xchgmark, ctrlBKSL
+	bind_w do_abort, ctrlG
+	bind_w do_stripCRs, altM
+	bind_w do_twiddle, ctrlT
+	bind_w do_dispmode, altG
+	bind_w do_insline, ctrlO
+	bind_w do_undo, ctrlUNDER
+	bind_w do_mx, 0
 
-
-;;; Command-line arguments
-
-argbindings:
-	bind xoff, 'x'
-	bind yoff, 'y'
-	bind tabwid, 't'
-	bind disp_cols, 'w'
-	bind disp_lines, 'l'
-	bind newline, 'n'
-	bind txtcolor, 'c'
-	bind invcolor, 'i'
-	bind hltcolor, 'h'
-	bind screen_page, 'b'	; set 'screen_page' to pre-defined value
+key_aliases:
+	bind_b keyUP, ctrlP
+	bind_b keyDOWN, ctrlN
+	bind_b keyLEFT, ctrlB
+	bind_b keyRIGHT, ctrlF
+	bind_b keyPGUP, altV
+	bind_b keyPGDN, ctrlV
+	bind_b keyHOME, ctrlA
+	bind_b keyEND, ctrlE
+	bind_b ctrlLEFT, altB
+	bind_b ctrlRIGHT, altF
+	bind_b keyDEL, ctrlD
+	bind_b ctrlEND, ctrlK
+	bind_b keyESC, ctrlX
 	db 0
 
 
