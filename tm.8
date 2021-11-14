@@ -54,11 +54,6 @@ main_do:
 	call chk_drawn		; cmp wnd_ptr, wnd_drawn
 	if nz call draw_page
 	call set_text_cursor
-	;; jmp get_and_do	; call get_and_do, then return to mainloop
-
-;;; Look up a "do_" or "go_" function and execute it.
-;;;
-get_and_do:
 	call dispatch_key	; Get key in AL, compare to 32
 	db 0
 	jge handle_literal	; AL is a printable character

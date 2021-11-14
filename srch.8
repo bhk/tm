@@ -39,7 +39,7 @@ do_rsearch:	mov_al_1			; AL = srch_back
 do_fsearch:	mov_al_2 srch_back, srch_fwd	; AL = srch_fwd
 	mov ah, NONCSMASK	; start out non-case-sensitive
 	test srchmode, ah	; if >0, we must be recording a macro
-	if nz jmp do_makemx	; start/stop macro
+	if nz jmp mx_startstop	; stop macro
 	mov srchdir_n_mask, ax	; srchdir=AL ; srchcsmask = NONCSMASK
 	mov si, srchbuf
 	call srch_setsrchend	; srchend=srchbuf; DX=point; CX=srchbuf
@@ -233,19 +233,11 @@ rplc_play:
 	sub si, cx
 	call rplc_delete
 	mov si, mx_play		; call mx_play with AX=0
-
 	mov al, 3
 	cmp al, srchmode
 	jbe >l1                 ; we're already replacing
 	mov srchmode, al        ; srchmode=3 indicating we're replacing now
 	call draw_status	; AL=3 => "Type ^S when done..."
-
-	;; cmp bp, msgrplc	; BP is either "...Search: " or "Replace"
-	;; je >l1
-	;; mov al, 3		; msgedit == 3
-	;; mov srchmode, al	; srchmode=3 ; in search & replace now
-	;; call draw_status
-
 	mov si, mx_record	; call mx_record with AX=0
 l1:	mov al, 18		; Ctrl-R represents the search/replace macro
 	call si			; Record or Play macro "0"

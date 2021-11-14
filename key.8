@@ -5,16 +5,21 @@
 ;;;
 ;;;    |--  definitions  -->   unused   <--  playback stack  --|
 ;;;    mxbuf  ...  mxdefsend     ...    mxsp    ...     mxbufmax
+;;;
+;;; Each macro definition has the following structure:  MACROKEY KEY... 0
+;;;
+;;; MACROKEY is the key code bound to the macro; KEY... is the sequence of
+;;; keystrokes that define the macro.
 
 
 ;;; Play back, or record (if Alt-F1 <= key <= Alt-F10) a macro
 ;;; On entry:
 ;;;   AL = single-byte description of key struck
 do_mx:
-	cmp al, -104
+	cmp al, altF1		; altF1 ... atlF10  = -104 ... -113
 	ja mx_activate		; activate playback
-	cmp al, -113
-	jae do_makemx		; start recording
+	cmp al, altF10
+	jae mx_startstop	; start recording
 	;; jmp mx_activate
 
 ;;; Activate a macro.
@@ -27,15 +32,13 @@ mx_activate:
 	int 016h
 	jz >a0			; no character
 	cmp al, 7
-	jne >a0			; not ^G
-	jmp do_abort
+	jz do_abort
 a0:	mov si, mxsp		; Save current ptr on mx stack
 	dec si, 2
 	cmp si, mxdefsend	; Is stack full?
-	jae >a1
 	mov al, msgloop
-	jmp error_msg
-a1:	mov ax, mxptr		; Save current mxptr in mxstack
+	jb error_msg
+	mov ax, mxptr		; Save current mxptr in mxstack
 	mov [si], ax
 	mov mxsp, si
 	;; jmp mx_nextptr	; set mxptr
@@ -80,15 +83,15 @@ p1:	test mxptr
 	call main_do
 	jmp p1
 
-;;; Start/Stop recording a macro, after clearing present definition.
+;;; Start/Stop recording a macro.
 ;;; On entry:
 ;;;	AL = code for alt-Fx that started this (will be converted to Fx code)
 ;;;
-do_makemx:
+mx_startstop:
 	mov di, mxrecptr
 	test di
 	jnz mx_stop		; if already recording, stop
-	add al, 45		; Alt-Fx -> Fx
+	add al, keyF1 - altF1	; Alt-Fx -> Fx
 	push ax
 	mov al, msgrecording
 	call draw_status
@@ -159,9 +162,19 @@ l1:	jcxz ret
 	jmp l1
 
 
-;;; Get a key from a) the unget buffer,  b) the macro buffer,  or c) BIOS
-;;; and return it in AX.  If (c), and mxrecptr !=0, add the character to
-;;; the macro buffer.
+;;; Get a key from a) the unget buffer, b) the macro buffer, or c) BIOS.
+;;;
+;;; We use a single non-zero byte to represent key events.  Positive values
+;;; are ASCII values.  Negative values are negated scan codes for keys that
+;;; do not have an ASCII representation.  A few outliers have scan codes
+;;; greater than 128; to ensure a negative value we set the high bit after
+;;; negating, which leaves us with no problematic conflicts.
+;;;
+;;; BIOS reports Ctrl-SPC as ordinary SPC.  We check the Ctrl key state to
+;;; detect Ctrl-SPC and report it as ctrlAT.  Some old terminals used to
+;;; send ASCII NUL for Ctrl-SPC, others used Ctrl-@, and Emacs binds these
+;;; to set-mark-command.  (`ctrlAT` is the negated scan code for Ctrl-@).
+;;;
 ;;; On exit:
 ;;;	AL = key typed
 ;;;	AH, DI = undefined
@@ -170,18 +183,27 @@ getkey:	clear ax
 	xchg al, ungotkey	; AL = ungotkey;  ungotkey = 0
 	test al
 	jnz ret
+	;; check macro playback
 	clear di
 	or di, mxptr		; see if we are playing back a macro
 	jz >g1			; go if no macro data
 	mov al, [di]
 	jmp mx_nextptr		; set mxptr; If at end of macro, set it to 0
-g1:	int 016h		; get what key was hit (AH=0 => get key)
-	test al
+g1:	;; get key from BIOS
+	int 016h		; int 016 / 00 => Get Keystroke
+	cmp al, keySPC
 	jnz >g2
-	sub al, ah		; AL = -AH
+	mov ah, 2
+	int 016h		; int 016 / 02 => Get "Shift" Flags
+	and al, 4		; 4 = either Ctrl key
+	mov al, 32
+	if nz mov al, ctrlAT	; Ctrl-SPC --> Ctrl-@
+g2:	test al
+	jnz >g3
+	sub al, ah		; negate scan code (AH)
 	or al, 128		; make sure AL is negative (and non-zero)
-	;; recording?
-g2:	or di, mxrecptr		; see if we should record this keystroke
+g3:	;; if recording a macro, save key
+	or di, mxrecptr		; see if we should record this keystroke
 	jz ret
 	cmp al, 8		; If backspace was typed...
 	jnz mx_record_byte
