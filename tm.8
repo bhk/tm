@@ -102,7 +102,7 @@ do_xchgmark:
 	call mark_check		; SI = &text_mark;  now AX = mark
 	mov point, ax
 	mov [si], di		; DI = point
-	jmp chk_point
+	jmp expose_point
 
 do_deltomark:
 	call mark_check		; SI = & text_mark;  now AX = mark
@@ -159,7 +159,7 @@ go_home:
 	mov point, si
 	mov al, 0
 	mov targetX, al
-	jmp chk_and_place	; Now: make sure it's on screen, set cursor
+	jmp expose_point_at	; Now: make sure it's on screen, set cursor
 
 
 ;;; Go to the end of the line
@@ -408,6 +408,7 @@ set_point:
 
 ;;; Move up one line seeking column CL; do not save cursor & point.
 ;;;
+;;; Destroys AX, BX, CX, BP
 mvup1:	mov bp, -1
 	mov ch, bh
 	dec ch			; note that CH == -1 is possible...take care.
@@ -461,7 +462,7 @@ r1:	dec di
 go_top:	mov ax, textbuf
 	mov point, ax
 	mov wnd_ptr, ax
-	;; jmp chk_point
+	;; jmp expose_point
 
 
 ;;; Make sure point is in the range of characters displayed on the screen,
@@ -469,10 +470,13 @@ go_top:	mov ax, textbuf
 ;;; of range, redisplay at position where point is on the desired line.
 ;;; This is called after wnd_ptr or point have been changed.
 ;;;
-chk_point:
+;;; On exit:	BX = cursor
+;;; 		Destroys AX, DI, SI, BP
+;;;
+expose_point:
 	mov al, maxY
 	shr al, 1
-chk_and_place:
+expose_point_at:
 	xchg ax, cx		; for "mov cl, al"; CL = target row
 	clear bx
 	call chk_drawn
@@ -543,6 +547,8 @@ chk_drawn:
 	ret
 
 
+;;; Destroys AX, BX, CX, DI, SI, BP
+;;;
 draw_page:
 	clear bx		; top left of window
 	mov di, wnd_ptr		; pos in text area where window display starts
@@ -691,7 +697,7 @@ go_dn:	call dn1
 
 ;;; Scroll down if necessary to expose cursor.
 ;;; On entry: BX = cursor
-;;; Destroys AL.  Maintains BX=cursor.  Other registers uncahnged.
+;;; Destroys AL.  Maintains BX=cursor.  Other registers unchanged.
 ;;;
 chk_advance:
 	cmp bh, maxY
@@ -809,14 +815,8 @@ go_up:	call up1
 ;;; On entry:
 ;;;	DI = position where cursor will be
 ;;;	BX = cursor position
-;;;
-;;; if bl=0 then bl = wndwid; bh--
-;;; if [DI] == TABCHAR  or  [DI] == newline then
-;;;   decrement SI to previous CR (or top of text)
-;;;   advance BX according to SI and increment SI until SI = DI
-;;; else
-;;;   bl--
-;;; end
+;;; On exit:
+;;; 	Destroys AX, BX, BP
 ;;;
 retreat:
 	mov bp, -1

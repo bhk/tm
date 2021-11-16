@@ -2,7 +2,7 @@
 
 EOT_CHAR	equ 236	 ; Omega character; displayed at end of text
 MXBUF_SIZE	equ 300	 ; 1 byte per keystroke, 2 per macro, 2 per nest level
-SRCHBUF_SIZE	equ 32	 ; Warning: each character needs 6 bytes of stack...
+SRCHBUF_SIZE	equ 24	 ; Warning: each character needs 8 bytes of stack...
 FNAME_SIZE	equ 07Eh ; maximum size of file name
 ARGBUF		equ 081h ; address of argument buffer; use to hold file name
 TABCHAR		equ 9
@@ -46,7 +46,6 @@ srchend		dw ?		; ptr to end of srchbuf[]
 srchdir_n_mask	dw
 srchdir		db ?		; search direction
 srchcsmask	db ?		; 0FF if case sensitive, 95 if not
-srchtextmax	dw ?		; = textbufend - len(srchbuf)
 srchmode	db ?
 srcholdlen	dw 0		; 0 => no previous search string
 
