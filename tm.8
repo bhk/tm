@@ -131,6 +131,14 @@ jmp_draw_status:
 	jmp draw_status
 
 
+;;; Insert a newline at the point, without advancing.
+;;;
+do_insline:
+	call do_enter
+	mov al, 2		; Ctrl-B (go left)
+	jmp lookup_do
+
+
 ;;; Switch [point-1] with [point]
 ;;;
 do_twiddle:
@@ -142,14 +150,6 @@ do_twiddle:
 	call go_rgt
 	pop ax
 	jmp handle_literal
-
-
-;;; Insert a newline at the point, without advancing.
-;;;
-do_insline:
-	call do_enter
-	mov al, 2		; Ctrl-B (go left)
-	jmp lookup_do
 
 
 ;;; Go to the start of the line
@@ -594,18 +594,6 @@ draw_tab:
 	ret
 
 
-;;; Clear to end of line & advance to start of next line
-;;; On entry:	BX = cursor position
-;;; On exit:	BX = new cursor position,
-;;;		AX trashed.
-;;;		C flag set if BX is off screen
-draw_eol:
-	push cx
-	call clear_eol_color
-	pop cx
-	jmp advance_newline	; return with C not set if BH on screen
-
-
 ;;; Display a character from the document in one or more display cells, and
 ;;; advance to the next row/col. Control characters and 8-bit characters might
 ;;; occupy 2 or 3 cells, depending on dispmode.  TAB and NEWLINE may clear
@@ -686,6 +674,18 @@ draw_cell_color:
 	call draw_cells		; Display CX copies of AX at BX
 	pop cx
 	jmps advance_one	; move one cell to the right
+
+
+;;; Clear to end of line & advance to start of next line
+;;; On entry:	BX = cursor position
+;;; On exit:	BX = new cursor position,
+;;;		AX trashed.
+;;;		C flag set if BX is off screen
+draw_eol:
+	push cx
+	call clear_eol_color
+	pop cx
+	jmps advance_newline	; return with C not set if BH on screen
 
 
 ;;; Move cursor down one line
@@ -1067,7 +1067,7 @@ l1:	lodsb			; be sure to get to end of string
 maybe_clear_status:
 	shr clrstat, 1
 	jnc ret
-
+	;; jmp clear_status
 
 ;;; Clear the status line.
 ;;; Destroys: AX, BX, CX
@@ -1103,14 +1103,14 @@ draw_cells:
 	;; Write directly to video buffer
 	push es, di
 	mov es, screen_seg
-	xchg ax, di		; save AX
+	xchg ax, di		; DI = attribute & char
 	add bx, topleft		; adjust for positioning of topleft
 	mov al, scrwid
 	mul bh			; AX = scrwid*line
 	mov bh, 0
 	add ax, bx		; AX = scrwid*line + column
 	add ax, ax
-	xchg ax, di		; DI = address; restore AX
+	xchg ax, di		; DI = address; AX = attribute & char
 	rep stosw		; store CX char/attribute pairs at ES:[DI++]
 	pop di, es
 	jmp >l2
