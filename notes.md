@@ -15,27 +15,19 @@
 
 * Using immediate data as arguments to functions
 
-  We can replace:
+  For example, given:
 
         mov ax,arg1
         call func
+        ...
 
-  with:
+  with appropriate changes to `func`, we can write:
 
         call func
         dw arg1
+        ...
 
-  ... and save one byte per argument per call, if we modify `func` to:
-
-        func:   pop si
-                lodsw
-                <body>
-                jmp si
-
-  ... instead of:
-
-        func:   <body>
-                ret
+  In TM, `dispatch_key`, among others, uses this approach.
 
 * "Dynamic wrapper" functions
 
@@ -63,9 +55,7 @@
                       pop di,si,dx,cx,bx
                       ret
 
-* Simple transformations
-
-  - Call-ret reduction
+* Tail call
 
         call  f     -->      jmp f
         ret
@@ -74,20 +64,16 @@
     can be positioned appropriately.  This allows multiple functions to be
     grafted together, sharing the same epilogue code and 'ret' instruction.
 
+* Collapse tail call with prior call
 
-  - Special prologue AND epilogue
+   If A is near and B is far, save one byte (on 80186+).  If A is
+   a fall-through, save 3 bytes.
 
-           call f   -->    pushi lbl        [on 8086, use "mox ax,lbl / push ax"]
-           jmp lbl  -->    ;fall through to f
-        f: ...           f: ...
-
- - Depending on which symbol is closer
-
-       call sub   <-->     pushi lbl
-       jmp lbl             jmp sub      ; relative jump (2 bytes) or abs (3)
+       call A    -->    pushi B    ; 3 bytes
+       jmp B            jmp A      ; 2 bytes when near
 
 
-* Jumping into the middle of an instruction
+* Overlapped instructions
 
   Consider a case where a function f takes the carry flag as an argument,
   and two helper functions: h1, which executes f with the carry flag
@@ -132,32 +118,28 @@
   that do exactly what is needed, and their unnecessary effects may not be a
   problem.  Examples:
 
-  - `lodsb` instead of `mov al,[si]`
-  - `xchg ax,bx` instead of `mov ax,bx` or `mov al,bl`
-  - `inc r16` instead of `inc r8`
+   - `lodsb` instead of `mov al,[si]`
+   - `xchg ax, bx` instead of `mov ax, bx` or `mov al, bl`
+   - `inc r16` instead of `inc r8`
 
-  Document the intended action with a comment like "for mov al,bl".
-
-
-* For each data item, consider each usage and choose representations which
-  optimize the usages.  For example, if a status variable represents an
-  on/off condition, and it is used in the following ways:
-
-        a) mov statvar,1        ; to turn it on
-        b) mov statvar,0        ; ... off
-        c) test statvar         ; to see if value is on
-           jz ...
-        d) test statvar
-           if z add al,3
-
-  ...then an ON value of 3 would be more useful, since it would shorten case
-  (d) (to just "add al,statvar") and leave the others unchanged.
+  We document the intended action with a comment like "for mov al,bl".
 
 
-* Re-use common subroutine tails
+* When arbitrary constants are used to represent states or conditions,
+  we can choose values that might be useful elsewhere.  For example,
+  if we have two values ON and OFF....
 
+  - If we test for the OFF condition, then using zero for OFF can make that
+    test more efficient (`test reg` vs. `cmp reg, OFF`).
 
-* Position code to make use of sequential control flow (vs. jumps or calls)
+  - If somewhere we do this:
+
+        test statvar
+        if nz add al, 3
+
+    Then using 3 for ON and 0 for OFF reduces the code to:
+
+        add al, statvar
 
 
 * Make the most of compares
@@ -176,58 +158,13 @@
         jz >l2
 
 
-## Size Reduction: TM-specific
+## Unimplemented Possibilities (TM-specific)
 
-I'm not actually sure which of these have been implemented yet....
+* Move mx_buf to the end of the .COM file to allow built-in
+  macros, and do Ctrl-T and word-wise operations as macros.
 
 * For command-line argument bindings, store the values next to the argument
   letter, instead of a pointer next to the letter.  Example:
-
-              db 'x'
-      x1      db 0
-              db 'y'
-      y1      db 0
-
-  instead of...
-
-
-      x1      db 0
-      y1      db 0
-              ...
-              db 'x'
-              dw x1
-              db 'y'
-
-
-  This would save 2 bytes per argument -- 20 bytes total, and maybe some
-  code too.
-
-
-* Use indexes for message strings, instead of addresses.
-
-  TM encodes strings in a compressed format that allows each string to
-  include other strings recursively.
-
-
-* Delta-encode BIND lists (re-write get_assoc)
-
-  Bindings of characters to words are currently unordered, leaving unused
-  information.  Re-ordering them by ascending word values would allow one
-  byte to represent each word value.
-
-  Savings:  1 byte per binding (62 bytes, currently), minus code overhead
-
-
-* Replace all "mov point,di" occurrences with "call mov_point_di".  Saves 6
-  bytes.
-
-
-* [unimplemented] Move mx_buf to the end of the .COM file to allow built-in
-  macros, and do Ctrl-T and word-wise operations as macros.
-
-
-* [unimplemented] For command-line argument bindings, store the values next
-  to the argument letter, instead of a pointer next to the letter.  Example:
 
                 db 'x'
            x1   db 0
@@ -245,10 +182,6 @@ I'm not actually sure which of these have been implemented yet....
                 db 'y'
 
 
-  This would save 2 bytes per argument.  20 bytes total, and maybe some
-  code too.
-
-
 ## Misc
 
 * Screen updates: Buffer manipulation functions are implemented in separate
@@ -258,17 +191,17 @@ I'm not actually sure which of these have been implemented yet....
   re-display the entire screen.
 
 
-* Instruction sizes:
+* Instruction sizes
 
-    mov r,ib    2
-    mov r,iw    3
+      mov r,ib    2
+      mov r,iw    3
 
-    mov AX,mem  3
-    mov r,mem   4
-    mov r,[r]   2       r = BX,SI,DI  (size = 3 for [bp])
+      mov AX,mem  3
+      mov r,mem   4
+      mov r,[r]   2       r = BX,SI,DI  (size = 3 for [bp])
 
-    mov mem,ib  5
-    mov mem,iw  6
+      mov mem,ib  5
+      mov mem,iw  6
 
 * BIOS
 
