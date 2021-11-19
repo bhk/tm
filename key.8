@@ -36,7 +36,7 @@ mx_activate:
 a0:	mov si, mxsp		; Save current ptr on mx stack
 	dec si, 2
 	cmp si, mxdefsend	; Is stack full?
-	mov al, msgloop
+	mov al, msgMXLoop
 	jb error_msg
 	mov ax, mxptr		; Save current mxptr in mxstack
 	mov [si], ax
@@ -93,7 +93,7 @@ mx_startstop:
 	jnz mx_stop		; if already recording, stop
 	add al, keyF1 - altF1	; Alt-Fx -> Fx
 	push ax
-	mov al, msgrecording
+	mov al, msgMXRec
 	call draw_status
 	pop ax
 	;; jmp mx_record
@@ -136,7 +136,7 @@ mx_stop:
 	stosb			; write an END-OF-MACRO character
 	mov mxdefsend, di	; mxdefsend = end of used portion of buffer
 	mov mxrecptr, ax	; stop recording
-	mov al, msgmxdone	; "Macro recorded"
+	mov al, msgMXDone	; "Macro recorded"
 	jmp draw_status
 
 
@@ -172,7 +172,7 @@ l1:	jcxz ret
 ;;;
 ;;; BIOS reports Ctrl-SPC as ordinary SPC.  We check the Ctrl key state to
 ;;; detect Ctrl-SPC and report it as ctrlAT.  Some old terminals used to
-;;; send ASCII NUL for Ctrl-SPC, others used Ctrl-@, and Emacs binds these
+;;; send ASCII NUL for Ctrl-SPC, others sent Ctrl-@, and Emacs binds these
 ;;; to set-mark-command.  (`ctrlAT` is the negated scan code for Ctrl-@).
 ;;;
 ;;; On exit:
@@ -220,5 +220,5 @@ g9:	mov mxrecptr, di
 	ret
 
 	;; Error . . . Out of macro space.
-e1:	mov al, msgmxfull	; say "Macro buffer full."
+e1:	mov al, msgMXFull	; say "Macro buffer full."
 	jmp error_msg

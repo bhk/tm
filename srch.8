@@ -94,7 +94,7 @@ l5:	;; at end, but maybe wrap-around
 	mov bh, 0
 	jnz l0
 	;; Failure: end of text reached
-	mov al, msgnotfound
+	mov al, msgSrchFail
 	mov di, point
 	mov dx, di
 	jmps srch_input
@@ -114,14 +114,14 @@ srch_do_bksp:
 ;;;	DI = end of match in text
 srch_found:
 	mov al, srchdir		; AL = 1 or 255
-	add al, msgrsrch+1	; AL = msgrsrch or msgsrch
-	or al, srchmode		; If srchmode==3, AL = msgrplc
+	add al, msgSrchR+1	; AL = msgSrchR or msgSrchF
+	or al, srchmode		; If srchmode==3, AL = msgSrchRplc
 	;; jmp srch_input
 
 ;;; Search state:  "[R-]Search:" / "Not Found:" / "Full! :"
 ;;;
 ;;; On entry:
-;;;	AL = status message (msgnotfound => string not found)
+;;;	AL = status message (msgSrchFail => string not found)
 ;;;	DI = point
 ;;;	DX = position of match (on success) or point (on failure)
 ;;;
@@ -132,7 +132,7 @@ srch_input:
 	popa
 srch_dispmsg:
 	;; Display status message
-	;;	AL = status message (msgnotfound => failure)
+	;;	AL = status message (msgSrchFail => failure)
 	cbw
 	push ax
 	call draw_status	; "Search:" / "Not found: " / "Full!"
@@ -151,7 +151,7 @@ l1:	mov al, srchCURSOR
 	pop bx
 	test srchmode
 	jz srch_getchar
-	cmp bl, msgnotfound	; failed?
+	cmp bl, msgSrchFail	; failed?
 	mov al, ctrlG		; restore old point on exit
 	jz srch_do_quit
 	jmp srch_replace
@@ -206,7 +206,7 @@ srch_do_literal:
 	cmp si, srchbufmax
 	jb >l1
 	call beep
-	mov al, msgfull
+	mov al, msgSrchFull
 	jmp srch_dispmsg	; search buffer full
 l1:	mov b[si], al		; add character to srchbuf[]
 	isupper al		; if upper case, make search CASE-SENSITIVE
@@ -260,7 +260,7 @@ srch_again:
 	mov ax, si
 	imul srchdir		; AX = amount to advance
 	mov bh, 0
-	cmp bl, msgnotfound
+	cmp bl, msgSrchFail
 	if e mov bh, 1		; wrap around
 	jmp srch_advance
 
@@ -300,7 +300,7 @@ rplc_play:
 	call delete_region_redisp
 	;;
 	mov si, mx_play		; call mx_play with AX=0
-	mov al, 3
+	mov al, msgSrchRec	; msgSrchRec == 3
 	cmp al, srchmode
 	jbe >l1                 ; we're already replacing
 	mov srchmode, al        ; srchmode=3 indicating we're replacing now

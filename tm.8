@@ -17,7 +17,7 @@ start:	mov ax, sp		; SP starts at the end of our 64KB(?) segment ;
 	call check_display	; set scrwid, scrhgt, and screen_seg
 	call scan_args		; read args & set appropriate variables
 	call set_dimensions	; fix xoff, yoff, maxX, & maxY, etc.
-	mov al, msgbanner
+	mov al, msgBanner
 	mov ah, invcolor
 	call draw_status_color
 
@@ -95,7 +95,7 @@ do_cutappend:
 
 do_setmark:
 	mov [si], di		; DI = point;  SI = &text_mark
-	mov al, msgmarkset
+	mov al, msgMarkSet
 	jmps jmp_draw_status
 
 do_xchgmark:
@@ -126,7 +126,7 @@ mark_check:
 c1:	test ax
 	jnz ret
 	pop ax
-	mov al, msgmarknot	; say "Mark not set."
+	mov al, msgMarkNot	; say "Mark not set."
 jmp_draw_status:
 	jmp draw_status
 
@@ -1412,7 +1412,7 @@ do_stripCRs:
 
 ;;; On entry: --
 do_abort:
-	mov al, msgaborted	; "^G"
+	mov al, msgIntr	; "^G"
 	;; jmp error_msg
 
 

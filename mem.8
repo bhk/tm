@@ -55,7 +55,7 @@ copy_region:
 	mov ax, cb_limit
 	sub ax, di		; available space in cut buffer
 	cmp cx, ax		; fits?
-	mov al, msgcutfull	; "Cut buffer full!"
+	mov al, msgCutFull	; "Cut buffer full!"
 	ja jmp_error_msg
 s2:	mov es, cb_seg		; es:di = cb_seg:cb_size = destination
 	rep movsb		; *DI++ = *SI++  x  CX
@@ -106,7 +106,7 @@ expand_at_point:
 	mov point, di
 	pop cx
 	ret
-l5:	mov al, msgtextfull	; say "text buffer full"
+l5:	mov al, msgTextFull	; say "text buffer full"
 jmp_error_msg:
 	jmp error_msg
 
@@ -192,7 +192,7 @@ do_undo:
 	test ax			; size==0 => start-of-time marker
 	jnz >l1
 l0:	mov ds, cs
-	mov al, msgnomore
+	mov al, msgUndoEmpty
 	jmp jmp_error_msg
 l1:	cmp di, ax
 	jbe l0			; go if out of room
@@ -222,7 +222,7 @@ i2:	pop si
 	rep movsb		; replace deleted text
 	mov ds, cs
 	mov point, ax
-i3:	mov al, msgundo
+i3:	mov al, msgUndoing
 	call draw_status
 	jmp draw_page
 

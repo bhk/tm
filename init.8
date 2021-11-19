@@ -4,7 +4,7 @@ EOT_CHAR	equ 236	 ; Omega character; displayed at end of text
 MXBUF_SIZE	equ 300	 ; 1 byte per keystroke, 2 per macro, 2 per nest level
 SRCHBUF_SIZE	equ 24	 ; Warning: each character needs 8 bytes of stack...
 FNAME_SIZE	equ 07Eh ; maximum size of file name
-ARGBUF		equ 081h ; address of argument buffer; use to hold file name
+ARGBUF		equ 081h ; address of argument buffer; used to hold file name
 TABCHAR		equ 9
 
 ;;; The data segment contains variables that overlap the once-used
@@ -125,14 +125,15 @@ crlf		db 13		; Used by opt_save.  (If newline changes,
 newline		db 10		; character denoting end of logical line (-nX)
 				; If "-n.." is given, verbatim should be set!
 
-;;; Menu definition macro
 
-menudef MACRO ; label prompt count [vector name]+
-#1:	db #2		; prompt message
+;;; menudef LABEL PROMPT COUNT [VECTOR NAME]+
+;;;
+menudef MACRO
+#1:	db #2		; prompt message ID
 	db #3		; count (number of options)
 	dw #1_L		; keymap
   #ry5l
-	db #y		; option names (5, 7, 9, ...)
+	db #y		; option names (5, 7, 9, ...)  [message IDs]
   #e2
   #rx4l
 	dw #x		; option vectors (4, 6, 8, ...)
@@ -203,7 +204,7 @@ argbindings:
 	db 0
 
 ;;;
-;;; Key codes
+;;; Key codes: These are values returned by `getkey`
 ;;;
 
 keyBKSP		equ 8
@@ -264,111 +265,109 @@ ctrlPGDN	equ -118
 ctrlPGUP	equ -4	; -132 -> -4
 ctrlRIGHT	equ -116
 
+;;;
 ;;; Message indices
 ;;;
-;;; Note: srch_input relis on these properties:
-;;;	msgrsrch AND 3 == msgrplc
-;;;	msgsrch AND 3 == msgrplc
-;;;	msgedit == 3
 
-msgfilesaved	equ 1
-msgnewfile	equ 2
-msgedit		equ 3
-msgcutfull	equ 4
-msgmarkset	equ 5
-msgmarknot	equ 6
-msgaborted	equ 7
-msgmxfull	equ 8
-msgrecording	equ 9
-msgmxdone	equ 10
-msgloop		equ 11
-msgrsrch	equ 12
-msgfull		equ 13
-msgsrch		equ 14
-msgrplc		equ 15
-msgtextfull	equ 16
-msgnotfound	equ 17	; srch_more needs (msgnotfound > other msgs)
-msgloadfile	equ 26
-msgsavefile	equ 27
-msgreaderror	equ 28
-msgfilebig	equ 29
-msgerrorsaving	equ 30
-msgloaded	equ 36
-msgnomore	equ 42
-msgundo		equ 43
-msgbanner	equ 52
+msgBanner	equ 1
+msgIntr		equ 2
+msgSrchRec	equ 3	; == 3 (see srch.8)
+msgSrchR	equ 4
+msgSrchFull	equ 5
+msgSrchF	equ 6
+msgSrchRplc	equ 7	; == msgSrchF OR 3 == msgSrchR OR 3  (see srch.8)
+msgSrchFail	equ 8
+msgMXRec	equ 9
+msgMXDone	equ 10
+msgMXLoop	equ 11
+msgMXFull	equ 12
+msgFileLoad	equ 13
+msgFileSave	equ 14
+msgFileBig	equ 15
+msgFileLoaded	equ 16
+msgFileNew	equ 17
+msgReadError	equ 18
+msgSaveError	equ 19
+msgFileSaved	equ 20
+msgUndoEmpty	equ 21
+msgUndoing	equ 22
+msgTextFull	equ 23
+msgCutFull	equ 24
+msgMarkSet	equ 25
+msgMarkNot	equ 26
 
 dosmsgBadArg:	db 'TM: bad argument$'
 dosmsgNoMem:	db 'TM: Not enough memory$'
 
 msg0:	db 0
-	db -39, 'd', -40, 0			;  1 Saved "<fnm>"
-	db 'New', -31, -40, 0			;  2 New file: "<fnm>"
+	db 'TM 1.5', 0				;  1 TM 1.5
+	db '^G', 0				;  2 ^G
 	db 'Type ^S when done...', 0		;  3 Type ^S when done...
-	db 'Cut', -20, 0			;  4 Cut buffer full!
-	db -21, 'set.', 0			;  5 Mark set.
-	db -21, -22, 'set!', 0			;  6 Mark not set!
-	db '^G', 0				;  7 ^G
-	db -23, -20, 0				;  8 Macro buffer full!
-	db -25, -41, -23, '...', 0		;  9 Recording macro...
-	db -23, ' ', -25, -18, 0		; 10 Macro recorded.
-	db -23, ' loop!', 0			; 11 Macro loop!
-	db 'R-', -14, 0				; 12 R-Search:
-	db -19, ' :', 0				; 13 Full! :
-	db 'Search:', 0				; 14 Search:
-	db -38, '? (Y,N,A,Q) :', 0		; 15 Replace? (Y, N, A, Q) :
-	db -33, -20, 0				; 16 File buffer full!
-	db -22, 'found:', 0			; 17 Not found:
-	db 'ed.', 0				; 18 ed.
-	db 'full!', 0				; 19 full!
-	db ' buffer ', -19, 0			; 20  buffer full!
-	db 'mark ', 0				; 21 mark
-	db 'not ', 0				; 22 not
-	db 'macro', 0				; 23 macro
-	db 'Quit', 0				; 24 Quit
-	db 'record', 0				; 25 record
-	db -35, -31, 0				; 26 Load file:
-	db -39, -31, 0				; 27 Save file:
-	db -35, ' ', -32, '!', 0		; 28 Load Error!
-	db -33, ' too big!', 0			; 29 File too big!
-	db -32, ' ', -34,-41,-33,'!', 0  	; 30 Error saving file!
-	db ' ', -33, ':', 0			; 31  file:
-	db 'Error', 0				; 32 Error
-	db 'file', 0				; 33 file
-	db 'sav', 0				; 34 sav
-	db 'Load', 0				; 35 Load
-	db -35, 'ed', -40, 0			; 36 Loaded "FILE"
-	db ' changes', 0			; 37  changes
-	db 'Replace', 0				; 38 Replace
-	db 'Save', 0				; 39 Save
+	db 'R-', -14, 0				;  4 R-Search:
+	db -38, ' :', 0				;  5 Full! :
+	db 'Search:', 0				;  6 Search:
+	db -34, '? (Y,N,A,Q) :', 0		;  7 Replace? (Y, N, A, Q) :
+	db -42, 'found:', 0			;  8 Not found:
+	db -49, -41, -50, '...', 0		;  9 Recording macro...
+	db -50, ' ', -49, -46, 0		; 10 Macro recorded.
+	db -50, ' loop!', 0			; 11 Macro loop!
+	db -50, -51, 0				; 12 Macro buffer full!
+	db -29, -52, 0				; 13 Load file:
+	db -27, -52, 0				; 14 Save file:
+	db -39, ' too big!', 0			; 15 File too big!
+	db -29, 'ed', -40, 0			; 16 Loaded "FILE"
+	db 'New', -52, -40, 0			; 17 New file: "<fnm>"
+	db -29, ' ', -45, '!', 0		; 18 Load Error!
+	db -45, ' ', -48,-41,-39,'!', 0  	; 19 Error saving file!
+	db -27, 'd', -40, 0			; 20 Saved "<fnm>"
+	db 'no more ', -44, '!', 0		; 21 no more undo!
+	db -44, -41, '...', 0			; 22 undoing ...
+	db -39, -51, 0				; 23 File buffer full!
+	db 'Cut', -51, 0			; 24 Cut buffer full!
+	db -43, 'set.', 0			; 25 Mark set.
+	db -43, -42, 'set!', 0			; 26 Mark not set!
+	db 'Save', 0				; 27 Save
+	db -48, 'e As', 0               	; 28 save As
+	db 'Load', 0				; 29 Load
+	db 'Quit', 0				; 30 Quit
+	db 'No', 0				; 31 No
+	db 'Yes', 0				; 32 Yes
+	db -27, -47, 0				; 33 Save changes
+	db 'Replace', 0				; 34 Replace
+	db 'Option:', 0                         ; 35 Option
+	db -30, ' and lose', -47 ,'?', 0 	; 36 Quit and lose changes?
+	db -29, ':', -40, ' un', -48, -46, 0	; 37 Load: "FILE" unsaved.
+	db 'full!', 0				; 38 full!
+	db 'file', 0				; 39 file
 	db ' "', -128, '"', 0			; 40 "FILE"
 	db 'ing ', 0				; 41 ing
-	db 'no more ', -44, '!', 0		; 42 no more undo!
-	db -44, -41, '...', 0			; 43 undoing ...
+	db 'not ', 0				; 42 not
+	db 'mark ', 0				; 43 mark
 	db 'undo', 0				; 44 undo
-	db -24, ' and lose', -37 ,'?', 0 	; 45 Quit and lose changes?
-	db -34, 'e As', 0               	; 46 save As
-	db 'No', 0				; 47 No
-	db 'Yes', 0				; 48 Yes
-	db -35, ':', -40, ' un', -34, -18, 0	; 49 Load: "FILE" unsaved.
-	db -39, -37, 0				; 50 Save changes
-	db 'Option:', 0                         ; 51 Option
-	db 'TM 1.5', 0				; 52 TM 1.5
+	db 'Error', 0				; 45 Error
+	db 'ed.', 0				; 46 ed.
+	db ' changes', 0			; 47  changes
+	db 'sav', 0				; 48 sav
+	db 'record', 0				; 49 record
+	db 'macro', 0				; 50 macro
+	db ' buffer ', -38, 0			; 51  buffer full!
+	db ' ', -39, ':', 0			; 52  file:
 
-menudef esc_menu, 51, 4, opt_save, 39, opt_save_as, 46, opt_load, 35, opt_quit, 24
+
+menudef esc_menu, 35, 4, opt_save, 27, opt_save_as, 28, opt_load, 29, opt_quit, 30
 	bind_b 1, 'S', ctrlS
 	bind_b 2, 'A', ctrlW
 	bind_b 3, 'L', ctrlF
 	bind_b 4, 'Q', ctrlC
 	db 0
 
-menudef exit_menu, 45, 3, opt_done, 47, opt_quit_y, 48, opt_quit_save, 39
+menudef exit_menu, 36, 3, opt_done, 31, opt_quit_y, 32, opt_quit_save, 27
 	bind_b 1, 'N'
 	bind_b 2, 'Y'
 	bind_b 3, 'S'
 	db 0
 
-menudef load_menu, 49, 2, opt_load_save, 50, opt_replace, 38
+menudef load_menu, 37, 2, opt_load_save, 33, opt_replace, 34
 	bind_b 1, 'S'
 	bind_b 2, 'R'
 	db 0
@@ -376,14 +375,10 @@ menudef load_menu, 49, 2, opt_load_save, 50, opt_replace, 38
 
 ;;; Key bindings
 ;;;
-;;; When a key is pressed, this list of bindings is searched for a
-;;; function to execute.  A key is identified by its ASCII value
-;;; if one is returned by BIOS; otherwise (0-scancode) is used.
+;;; When a key is pressed, key_aliases is used to translate it, and then
+;;; fn_bindings is searched for a function to execute.  The last entry in
+;;; fn_bindings (with key_code 0) applies when no other entries match.
 ;;;
-;;; Each invocation of the `bind` macro may generate one *or more*
-;;; (key, function) pairs.
-;;;
-;;; A zero key value terminates the list of bindings.
 
 fn_bindings:
 	bind_w do_literal, ctrlJ, keyTAB
@@ -423,8 +418,9 @@ fn_bindings:
 	bind_w do_undo, ctrlUNDER
 	bind_w do_mx, 0
 
+
 key_aliases:
-	bind_b keyUP, ctrlP
+	bind_b keyUP, ctrlP	; translate ctrlP to keyUP
 	bind_b keyDOWN, ctrlN
 	bind_b keyLEFT, ctrlB
 	bind_b keyRIGHT, ctrlF

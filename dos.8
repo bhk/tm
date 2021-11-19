@@ -20,7 +20,7 @@ opt_load_save:
 	;; jmp opt_replace
 
 opt_replace:
-	mov dl, msgloadfile
+	mov dl, msgFileLoad
 	call edit_name
 	mov init_level, 0
 	jmp throw
@@ -55,7 +55,7 @@ load_file:
 	cmp ax, cx		; if it read one too many...
 	jne >f1			;   file is too big
 	mov b[si], 0		; (SI=ARGBUF)
-	mov al, msgfilebig
+	mov al, msgFileBig
 	jmps l_draw_status
 f1:	add ax, dx		; AX = no. of bytes + textbuf
 	mov textbufend, ax	; set end of text area
@@ -64,15 +64,15 @@ f1:	add ax, dx		; AX = no. of bytes + textbuf
 	if z call remove_CRs	; remove CR's if NOT verbatim
 	test init_level
 	jz ret			; return now if being called at startup
-	mov al, msgloaded
+	mov al, msgFileLoaded
 	jmps l_draw_status	; say:  Loaded "filename"
 
 f2:	;;  Distinguish error from file-not-found
 	cmp al, 2		; 2 => file not found
-	;; mov al, msgnewfile	; msgnewfile == 2
+	mov al, msgFileNew
 	jz l_draw_status
 f3:	;; Error
-	mov al, msgreaderror
+	mov al, msgReadError
 	;; Abort with message AL
 l_draw_status:
 	jmp draw_status		; Display message and return
@@ -116,7 +116,7 @@ dosint:	int 021h
 ;;; Ask for file name and save file
 ;;;
 opt_save_as:
-	mov dl, msgsavefile
+	mov dl, msgFileSave
 	call edit_name
 	;; jmp opt_save
 
@@ -134,10 +134,10 @@ opt_save:
 	call write_text
 	call fclose
 	mov unsaved, 0
-	mov al, msgfilesaved
+	mov al, msgFileSaved
 s1:	jmp l_draw_status
 s2:	call draw_page		; fix screen after DOS "Abort...?" msg
-	mov al, msgerrorsaving	; say "Error saving file"
+	mov al, msgSaveError	; say "Error saving file"
 	jmp s1
 
 
@@ -197,7 +197,7 @@ edit_name:
 	push si
 	call e2			; save copy of fname
 	pop si
-	cmp dl, msgloadfile
+	cmp dl, msgFileLoad
 	jnz >e1
 e0:	mov b[si], 0		; start with new file name
 e1:	mov al, dl
