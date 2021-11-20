@@ -459,11 +459,13 @@ r1:	dec di
 ;;;
 ;;; On entry: --
 ;;;
-go_top:	mov ax, textbuf
-	mov point, ax
-	mov wnd_ptr, ax
+go_top:	mov di, textbuf
+	mov wnd_ptr, di
 	;; jmp expose_point
 
+set_and_expose_point:
+	call set_point
+	;; jmp expose_point
 
 ;;; Make sure point is in the range of characters displayed on the screen,
 ;;; wnd_ptr hasn't been changed, and cursor is correct.  If point is out

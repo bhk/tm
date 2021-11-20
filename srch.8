@@ -127,8 +127,7 @@ srch_found:
 ;;;
 srch_input:
 	pusha
-	call set_point
-	call expose_point	; clobbers AX, BX, DI, SI, BP
+	call set_and_expose_point
 	popa
 srch_dispmsg:
 	;; Display status message
@@ -188,8 +187,7 @@ l1:	pop dx, bx, di, si
 	jne >l2
 	;; ctrl-G => restore pre-search state
 	mov wnd_ptr, bx
-	call set_point
-	call expose_point	; clobbers AX, BX, DI, SI, BP
+	call set_and_expose_point ; clobbers AX, BX, DI, SI, BP
 l2:	mov srchmode, 0
 	jmp maybe_clear_status	; return from do_[fr]search
 
