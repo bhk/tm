@@ -3,7 +3,7 @@
 ;;; `cld` is assumed throughout the program.
 
 start:	mov ax, sp		; SP starts at the end of our 64KB(?) segment ;
-	dec ah			; reserve 256 bytes for call stack
+	sub ah, 2		; reserve 512 bytes for stack (also used by srch)
 	mov di, dyn_buffers
 	stosw			; set mxbufmax
 	sub ax, MXBUF_SIZE
