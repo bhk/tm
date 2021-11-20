@@ -302,32 +302,32 @@ dosmsgNoMem:	db 'TM: Not enough memory$'
 msg0:	db 0
 	db 'TM 1.5', 0				;  1 TM 1.5
 	db '^G', 0				;  2 ^G
-	db 'Type ^S when done...', 0		;  3 Type ^S when done...
+	db 'Type ^S when done', -46, 0		;  3 Type ^S when done...
 	db 'R-', -14, 0				;  4 R-Search:
 	db -38, ' :', 0				;  5 Full! :
 	db 'Search:', 0				;  6 Search:
 	db -34, '? (Y,N,A,Q) :', 0		;  7 Replace? (Y, N, A, Q) :
 	db -42, 'found:', 0			;  8 Not found:
-	db -49, -41, -50, '...', 0		;  9 Recording macro...
-	db -50, ' ', -49, -46, 0		; 10 Macro recorded.
+	db -49, -41, -50, -46, 0		;  9 recording macro...
+	db -50, ' ', -49, 'ed', 0		; 10 Macro recorded
 	db -50, ' loop!', 0			; 11 Macro loop!
-	db -50, -51, 0				; 12 Macro buffer full!
-	db -29, -52, 0				; 13 Load file:
-	db -27, -52, 0				; 14 Save file:
+	db -50, -51, 0				; 12 Macro Buffer Full!
+	db -29, -48, 0				; 13 Load File:
+	db -27, -48, 0				; 14 Save File:
 	db -39, ' too big!', 0			; 15 File too big!
 	db -29, 'ed', -40, 0			; 16 Loaded "FILE"
-	db 'New', -52, -40, 0			; 17 New file: "<fnm>"
+	db 'New', -48, -40, 0			; 17 New File: "<fnm>"
 	db -29, ' ', -45, '!', 0		; 18 Load Error!
-	db -45, ' ', -48,-41,-39,'!', 0  	; 19 Error saving file!
+	db -45, ' Sav', -41, -39, '!', 0  	; 19 Error Saving File!
 	db -27, 'd', -40, 0			; 20 Saved "<fnm>"
-	db 'no more ', -44, '!', 0		; 21 no more undo!
-	db -44, -41, '...', 0			; 22 undoing ...
-	db -39, -51, 0				; 23 File buffer full!
-	db 'Cut', -51, 0			; 24 Cut buffer full!
-	db -43, 'set.', 0			; 25 Mark set.
+	db 'No more ', -44, '!', 0		; 21 No more undo!
+	db -44, -41, -46, 0			; 22 undoing...
+	db -39, -51, 0				; 23 File Buffer Full!
+	db 'Cut', -51, 0			; 24 Cut Buffer Full!
+	db -43, 'set', 0			; 25 Mark set
 	db -43, -42, 'set!', 0			; 26 Mark not set!
-	db 'Save', 0				; 27 Save
-	db -48, 'e As', 0               	; 28 save As
+	db 'S', -52, 0				; 27 Save
+	db 's', -52, ' As', 0		        ; 28 save As
 	db 'Load', 0				; 29 Load
 	db 'Quit', 0				; 30 Quit
 	db 'No', 0				; 31 No
@@ -335,23 +335,23 @@ msg0:	db 0
 	db -27, -47, 0				; 33 Save changes
 	db 'Replace', 0				; 34 Replace
 	db 'Option:', 0                         ; 35 Option
-	db -30, ' and lose', -47 ,'?', 0 	; 36 Quit and lose changes?
-	db -29, ':', -40, ' un', -48, -46, 0	; 37 Load: "FILE" unsaved.
-	db 'full!', 0				; 38 full!
-	db 'file', 0				; 39 file
+	db -30, ' and lose', -47, '?', 0 	; 36 Quit and lose changes?
+	db -29, ':', -40, ' uns', -52, 'd', 0	; 37 Load: "FILE" unsaved
+	db 'Full!', 0				; 38 Full!
+	db 'File', 0				; 39 File
 	db ' "', -128, '"', 0			; 40 "FILE"
 	db 'ing ', 0				; 41 ing
 	db 'not ', 0				; 42 not
-	db 'mark ', 0				; 43 mark
+	db 'Mark ', 0				; 43 Mark
 	db 'undo', 0				; 44 undo
 	db 'Error', 0				; 45 Error
-	db 'ed.', 0				; 46 ed.
+	db '...', 0				; 46 ...
 	db ' changes', 0			; 47  changes
-	db 'sav', 0				; 48 sav
+	db ' ', -39, ':', 0			; 48  File:
 	db 'record', 0				; 49 record
 	db 'macro', 0				; 50 macro
-	db ' buffer ', -38, 0			; 51  buffer full!
-	db ' ', -39, ':', 0			; 52  file:
+	db ' buffer ', -38, 0			; 51  Buffer Full!
+	db 'ave', 0				; 52 ave
 
 
 menudef esc_menu, 35, 4, opt_save, 27, opt_save_as, 28, opt_load, 29, opt_quit, 30
