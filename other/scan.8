@@ -13,6 +13,11 @@
 ;   Alt-SPACE          ->  A-32        (AL = 32)
 ;   Alt-<OTHER>        ->  nothing
 
+start:	jmp main
+
+
+kbint	db 0 ;; 010h => "extended keyboard" (but might not be supported???)
+
 
 main:	call getkey
 	call show_shift
@@ -51,7 +56,7 @@ prefix: db '$...', 'C-$.', 'A-$.', 'C-A-$'
 ;   AH = scan code
 ;   AL = ASCII value (or 0 if non-ASCII)
 ;
-getkey:	mov ah,010h
+getkey:	mov ah, kbint
 	int 016h		; get what key was hit in AX
         ret
 
