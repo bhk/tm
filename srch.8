@@ -248,15 +248,19 @@ rplc_next:
 	clear cx
 	;; jmp srch_again
 
-;;; Advance point by len(srchbuf) - CX and continue searching
+;;; Advance to next search position after ^S, ^R, or replace operation.
+;;; Forward => DX += srchlen - CX
+;;; Reverse => DX -= srchlen
 ;;;	DX = current search position
 ;;;	CX = number of characters deleted (in replacement operation)
 ;;;	BL = status message
 ;;;
 srch_again:
-	sub si, bp
 	mov ax, si
-	imul srchdir		; AX = amount to advance
+	sub ax, bp		; length of search string
+	imul srchdir		; amount & direction to move
+	test ax
+	if ns sub ax, cx	; adjust by insertion/deletion only if forward
 	mov bh, 0
 	cmp bl, msgSrchFail
 	if e mov bh, 1		; wrap around
