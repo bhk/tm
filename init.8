@@ -226,6 +226,8 @@ altB		equ -48
 altF		equ -33
 altG		equ -34
 altM		equ -50
+altN		equ -49
+altP		equ -25
 altV		equ -47
 altZ		equ -44
 altF1		equ -104
@@ -394,8 +396,8 @@ fn_bindings:
 	bind_w go_end, keyEND
 	bind_w go_lft_word, ctrlLEFT
 	bind_w go_rgt_word, ctrlRIGHT
-	bind_w go_scrlup, ctrlZ
-	bind_w go_scrldn, altZ
+	bind_w go_scrlup, altN
+	bind_w go_scrldn, altP
 	bind_w do_recenter, ctrlL
 	bind_w do_delete, keyDEL
 	bind_w do_kill, ctrlEND
