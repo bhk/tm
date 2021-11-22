@@ -100,7 +100,7 @@ ungotkey	db 0
 ;;; Editing state
 
 targetX		db 0		; stores column for goto next/prev line fns.
-verbatim	db 0		; >0 if CR's should be displayed, 0 if not
+verbatim	db 0		; non-zero => disable CR removal/insertion
 dispmode	db 0		; Specifies representation of ctrl chars
 
 
@@ -120,8 +120,6 @@ inv_and_hlt	dw		; get hlt and inv at once
 invcolor	db 020h		; inverse color
 hltcolor	db 7		; highlighted color
 tabwid		db 8		; "-tX" changes this.
-crlf		db 13		; Used by opt_save.  (If newline changes,
-		;db 10		; then verbatim is set & crlf won't be used!)
 newline		db 10		; character denoting end of logical line (-nX)
 				; If "-n.." is given, verbatim should be set!
 
@@ -404,7 +402,7 @@ fn_bindings:
 	bind_w do_ctrlq, ctrlQ
 	bind_w do_esc, keyESC
 	bind_w do_yank, ctrlY
-	bind_w do_cutappend, altA
+	bind_w do_appendnext, altA
 	bind_w do_setmark, ctrlAT
 	bind_w do_deltomark, ctrlW
 	bind_w do_fsearch, ctrlS
